@@ -5,6 +5,7 @@ import com.werewolfkill.game.dto.LoginRequest;
 import com.werewolfkill.game.dto.RegisterRequest;
 import com.werewolfkill.game.model.User;
 import com.werewolfkill.game.repository.UserRepository;
+import com.werewolfkill.game.security.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -18,6 +19,9 @@ public class AuthService {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    @Autowired
+    private JwtUtil jwtUtil;
+
     public AuthResponse register(RegisterRequest request) {
         if (userRepository.existsByUsername(request.getUsername())) {
             throw new RuntimeException("Username already exists");
@@ -28,8 +32,8 @@ public class AuthService {
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user = userRepository.save(user);
         
-        // TODO: Generate JWT token
-        String token = "mock-jwt-token-" + user.getId();
+        // Generate real JWT token
+        String token = jwtUtil.generateToken(user.getUsername(), user.getId());
         
         return new AuthResponse(
             token,
@@ -46,8 +50,8 @@ public class AuthService {
             throw new RuntimeException("Invalid credentials");
         }
         
-        // TODO: Generate JWT token
-        String token = "mock-jwt-token-" + user.getId();
+        // Generate real JWT token
+        String token = jwtUtil.generateToken(user.getUsername(), user.getId());
         
         return new AuthResponse(
             token,
