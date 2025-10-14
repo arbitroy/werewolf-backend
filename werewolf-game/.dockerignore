@@ -1,0 +1,10 @@
+.dockerignore
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+.git/
+.idea/
+*.iml
+.DS_Store
+.env

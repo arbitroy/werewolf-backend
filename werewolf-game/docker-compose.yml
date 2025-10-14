@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: werewolf-postgres
+    environment:
+      POSTGRES_DB: werewolf_db
+      POSTGRES_USER: werewolf
+      POSTGRES_PASSWORD: werewolf123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - werewolf-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U werewolf"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Spring Boot Backend (optional - if you want to containerize)
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: werewolf-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/werewolf_db
+      SPRING_DATASOURCE_USERNAME: werewolf
+      SPRING_DATASOURCE_PASSWORD: werewolf123
+      JWT_SECRET: your-super-secret-jwt-key-change-in-production
+    ports:
+      - "8080:8080"
+    networks:
+      - werewolf-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  werewolf-network:
+    driver: bridge
