@@ -1,0 +1,25 @@
+services:
+  # Spring Boot Backend Web Service
+  - type: web
+    name: werewolf-backend
+    runtime: docker
+    plan: free  # or starter for $7/month
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /actuator/health
+    
+    # Environment Variables (set these in Render Dashboard after creating the service)
+    envVars:
+      - key: SPRING_DATASOURCE_URL
+        sync: false  # Set manually after creating PostgreSQL database
+      - key: SPRING_DATASOURCE_USERNAME  
+        sync: false  # Set manually
+      - key: SPRING_DATASOURCE_PASSWORD
+        sync: false  # Set manually
+      - key: JWT_SECRET
+        generateValue: true  # Render will auto-generate a secure secret
+      - key: JWT_EXPIRATION
+        value: "86400000"  # 24 hours in milliseconds
+      - key: SERVER_PORT
+        value: "8080"
+
