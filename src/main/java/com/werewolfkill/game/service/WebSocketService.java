@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -32,33 +33,33 @@ public class WebSocketService {
      * Broadcast player joined event
      */
     public void broadcastPlayerJoined(UUID roomId, UUID playerId, String username) {
-        Map<String, Object> message = Map.of(
-                "type", "PLAYER_JOINED",
-                "playerId", playerId.toString(),
-                "username", username
-        );
-        messagingTemplate.convertAndSend("/topic/room/" + roomId, (Map<String, ?>) message);
+        Map<String, Object> message = new HashMap<>();
+        message.put("type", "PLAYER_JOINED");
+        message.put("playerId", playerId.toString());
+        message.put("username", username);
+        
+        messagingTemplate.convertAndSend("/topic/room/" + roomId, (Object) message);
     }
 
     /**
      * Broadcast player left event
      */
     public void broadcastPlayerLeft(UUID roomId, UUID playerId) {
-        Map<String, Object> message = Map.of(
-                "type", "PLAYER_LEFT",
-                "playerId", playerId.toString()
-        );
-        messagingTemplate.convertAndSend("/topic/room/" + roomId, (Map<String, ?>) message);
+        Map<String, Object> message = new HashMap<>();
+        message.put("type", "PLAYER_LEFT");
+        message.put("playerId", playerId.toString());
+        
+        messagingTemplate.convertAndSend("/topic/room/" + roomId, (Object) message);
     }
 
     /**
      * Broadcast game started event
      */
     public void broadcastGameStarted(UUID roomId) {
-        Map<String, Object> message = Map.of(
-                "type", "GAME_STARTED",
-                "roomId", roomId.toString()
-        );
-        messagingTemplate.convertAndSend("/topic/room/" + roomId, message);
+        Map<String, Object> message = new HashMap<>();
+        message.put("type", "GAME_STARTED");
+        message.put("roomId", roomId.toString());
+        
+        messagingTemplate.convertAndSend("/topic/room/" + roomId, (Object) message);
     }
 }
