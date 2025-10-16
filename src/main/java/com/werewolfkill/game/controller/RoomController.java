@@ -108,21 +108,29 @@ public class RoomController {
             UUID playerId = UUID.fromString(request.get("playerId"));
             UUID roomUuid = UUID.fromString(roomId);
 
+            // Check if player is already in room BEFORE joining
+            boolean wasAlreadyInRoom = playerRoomRepository
+                    .findByPlayerIdAndRoomId(playerId, roomUuid)
+                    .isPresent();
+
             // Get username from database for WebSocket broadcast
             User user = userRepository.findById(playerId)
                     .orElseThrow(() -> new RuntimeException("User not found"));
 
-            System.out.println("🔵 User found: " + user.getUsername());
+            System.out.println("🔵 User found: " + user.getUsername() + ", already in room: " + wasAlreadyInRoom);
 
-            // Add player to room via service
+            // Add player to room via service (idempotent)
             roomService.joinRoom(roomUuid, playerId);
 
             System.out.println("🔵 Player added to room via service");
 
-            // Broadcast to all WebSocket clients in this room
-            webSocketService.broadcastPlayerJoined(roomUuid, playerId, user.getUsername());
-
-            System.out.println("✅ Join successful, broadcasting complete");
+            // Only broadcast if this is a NEW join (not a duplicate)
+            if (!wasAlreadyInRoom) {
+                webSocketService.broadcastPlayerJoined(roomUuid, playerId, user.getUsername());
+                System.out.println("✅ Join successful, broadcasting PLAYER_JOINED");
+            } else {
+                System.out.println("✅ Player was already in room, skipping broadcast");
+            }
 
             return ResponseEntity.ok(
                     ApiResponse.success("Joined room", null));

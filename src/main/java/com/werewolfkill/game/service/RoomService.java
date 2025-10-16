@@ -45,33 +45,38 @@ public class RoomService {
         return room;
     }
 
-    @Transactional
-    public void joinRoom(UUID roomId, UUID playerId) {
-        Room room = roomRepository.findById(roomId)
-                .orElseThrow(() -> new RuntimeException("Room not found"));
+@Transactional
+public void joinRoom(UUID roomId, UUID playerId) {
+    Room room = roomRepository.findById(roomId)
+            .orElseThrow(() -> new RuntimeException("Room not found"));
 
-        if (room.getCurrentPlayers() >= room.getMaxPlayers()) {
-            throw new RuntimeException("Room is full");
-        }
-
-        if (room.getStatus() != RoomStatus.WAITING) {
-            throw new RuntimeException("Game already started");
-        }
-
-        // Check if player already in room
-        if (playerRoomRepository.findByPlayerIdAndRoomId(playerId, roomId).isPresent()) {
-            throw new RuntimeException("Already in room");
-        }
-
-        PlayerRoom playerRoom = new PlayerRoom();
-        playerRoom.setPlayerId(playerId);
-        playerRoom.setRoomId(roomId);
-        playerRoom.setIsHost(false);
-        playerRoomRepository.save(playerRoom);
-
-        room.setCurrentPlayers(room.getCurrentPlayers() + 1);
-        roomRepository.save(room);
+    if (room.getCurrentPlayers() >= room.getMaxPlayers()) {
+        throw new RuntimeException("Room is full");
     }
+
+    if (room.getStatus() != RoomStatus.WAITING) {
+        throw new RuntimeException("Game already started");
+    }
+
+    // Check if player already in room - if so, just return success (idempotent)
+    Optional<PlayerRoom> existingPlayerRoom = playerRoomRepository.findByPlayerIdAndRoomId(playerId, roomId);
+    if (existingPlayerRoom.isPresent()) {
+        System.out.println("⚠️ Player " + playerId + " already in room " + roomId + " - skipping duplicate join");
+        return; // Player already in room, this is OK (idempotent operation)
+    }
+
+    // Add new player to room
+    PlayerRoom playerRoom = new PlayerRoom();
+    playerRoom.setPlayerId(playerId);
+    playerRoom.setRoomId(roomId);
+    playerRoom.setIsHost(false);
+    playerRoomRepository.save(playerRoom);
+
+    room.setCurrentPlayers(room.getCurrentPlayers() + 1);
+    roomRepository.save(room);
+    
+    System.out.println("✅ Player " + playerId + " successfully joined room " + roomId);
+}
 
     @Transactional
     public void leaveRoom(UUID roomId, UUID playerId) {
