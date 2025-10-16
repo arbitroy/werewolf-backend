@@ -7,7 +7,6 @@ import org.springframework.stereotype.Service;
 import com.werewolfkill.game.model.PlayerRoom;
 import com.werewolfkill.game.repository.PlayerRoomRepository;
 
-
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -25,7 +24,7 @@ public class WebSocketService {
      * Send game update to all players in a room
      */
     public void sendGameUpdate(UUID roomId, GameUpdateMessage message) {
-        messagingTemplate.convertAndSend("/topic/game/" + roomId, message);
+        messagingTemplate.convertAndSend("/topic/game/" + roomId, (Object) message);
     }
 
     /**
@@ -54,7 +53,7 @@ public class WebSocketService {
         message.put("timestamp", System.currentTimeMillis());
         
         System.out.println("🔍 Broadcasting PLAYER_JOINED: " + message);
-        messagingTemplate.convertAndSend("/topic/room/" + roomId, message);
+        messagingTemplate.convertAndSend("/topic/room/" + roomId, (Object) message);
     }
 
     /**
@@ -66,7 +65,7 @@ public class WebSocketService {
         message.put("playerId", playerId.toString());
         message.put("timestamp", System.currentTimeMillis());
         
-        messagingTemplate.convertAndSend("/topic/room/" + roomId, message);
+        messagingTemplate.convertAndSend("/topic/room/" + roomId, (Object) message);
     }
 
     /**
@@ -78,6 +77,6 @@ public class WebSocketService {
         message.put("roomId", roomId.toString());
         message.put("timestamp", System.currentTimeMillis());
         
-        messagingTemplate.convertAndSend("/topic/room/" + roomId, message);
+        messagingTemplate.convertAndSend("/topic/room/" + roomId, (Object) message);
     }
 }

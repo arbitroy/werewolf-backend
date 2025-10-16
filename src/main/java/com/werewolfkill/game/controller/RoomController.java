@@ -2,6 +2,7 @@ package com.werewolfkill.game.controller;
 
 import com.werewolfkill.game.dto.ApiResponse;
 import com.werewolfkill.game.model.Room;
+import com.werewolfkill.game.model.User;
 import com.werewolfkill.game.model.PlayerRoom;
 import com.werewolfkill.game.model.enums.RoomStatus;
 import com.werewolfkill.game.repository.RoomRepository;
