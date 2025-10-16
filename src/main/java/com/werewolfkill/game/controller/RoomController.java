@@ -39,7 +39,6 @@ public class RoomController {
     @Autowired
     private UserRepository userRepository;
 
-
     @PostMapping
     public ResponseEntity<ApiResponse<Room>> createRoom(
             @RequestBody Map<String, Object> request) {
@@ -104,6 +103,8 @@ public class RoomController {
             @PathVariable String roomId,
             @RequestBody Map<String, String> request) {
         try {
+            System.out.println("🔵 Join room request - roomId: " + roomId + ", body: " + request);
+
             UUID playerId = UUID.fromString(request.get("playerId"));
             UUID roomUuid = UUID.fromString(roomId);
 
@@ -111,16 +112,24 @@ public class RoomController {
             User user = userRepository.findById(playerId)
                     .orElseThrow(() -> new RuntimeException("User not found"));
 
+            System.out.println("🔵 User found: " + user.getUsername());
+
             // Add player to room via service
             roomService.joinRoom(roomUuid, playerId);
+
+            System.out.println("🔵 Player added to room via service");
 
             // Broadcast to all WebSocket clients in this room
             webSocketService.broadcastPlayerJoined(roomUuid, playerId, user.getUsername());
 
+            System.out.println("✅ Join successful, broadcasting complete");
+
             return ResponseEntity.ok(
                     ApiResponse.success("Joined room", null));
         } catch (Exception e) {
-            return ResponseEntity.badRequest()
+            System.err.println("❌ Join room error: " + e.getMessage());
+            e.printStackTrace();
+            return ResponseEntity.status(500)
                     .body(ApiResponse.error(e.getMessage()));
         }
     }

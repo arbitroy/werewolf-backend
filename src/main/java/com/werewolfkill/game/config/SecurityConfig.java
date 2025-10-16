@@ -32,12 +32,11 @@ public class SecurityConfig {
                 .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
             )
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/auth/**", "/ws/**", "/actuator/**").permitAll()
+                .requestMatchers("/api/auth/**", "/ws/**", "/actuator/**", "/app/**", "/topic/**").permitAll()
                 .anyRequest().authenticated()
             )
-            // ADD THE JWT FILTER HERE - This is what was missing!
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         
         return http.build();
     }
-} 
+}
