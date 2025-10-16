@@ -6,6 +6,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 
 import java.util.Map;
+import java.util.UUID;
 
 @Controller
 public class GameWebSocketHandler {
@@ -23,11 +24,24 @@ public class GameWebSocketHandler {
     @SendTo("/topic/room/{roomId}")
     public Map<String, Object> handleJoinRoom(@DestinationVariable String roomId,
             Map<String, String> message) {
+
+        // Get player info from database to check if they're the host
+        UUID playerId = UUID.fromString(message.get("playerId"));
+        UUID roomUuid = UUID.fromString(roomId);
+
+        // Query player_rooms table to get isHost status
+        PlayerRoom playerRoom = playerRoomRepository
+                .findByPlayerIdAndRoomId(playerId, roomUuid)
+                .orElse(null);
+
+        boolean isHost = playerRoom != null && playerRoom.getIsHost();
+
         // Broadcast player joined event
         return Map.of(
                 "type", "PLAYER_JOINED",
                 "playerId", message.get("playerId"),
                 "username", message.get("username"),
+                "isHost", isHost, // ✅ ADD THIS
                 "timestamp", System.currentTimeMillis());
     }
 
