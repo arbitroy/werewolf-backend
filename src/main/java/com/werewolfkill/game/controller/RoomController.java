@@ -20,9 +20,12 @@ public class RoomController {
 
     @Autowired
     private RoomRepository roomRepository;
-    
+
     @Autowired
     private PlayerRoomRepository playerRoomRepository;
+
+    @Autowired
+    private RoomService roomService;
 
     @PostMapping
     public ResponseEntity<ApiResponse<Room>> createRoom(
@@ -34,20 +37,19 @@ public class RoomController {
             room.setMaxPlayers((Integer) request.getOrDefault("maxPlayers", 8));
             room.setCurrentPlayers(1);
             room = roomRepository.save(room);
-            
+
             // Add host as first player
             PlayerRoom hostPlayer = new PlayerRoom();
             hostPlayer.setPlayerId(room.getHostId());
             hostPlayer.setRoomId(room.getId());
             hostPlayer.setIsHost(true);
             playerRoomRepository.save(hostPlayer);
-            
+
             return ResponseEntity.ok(
-                ApiResponse.success("Room created", room)
-            );
+                    ApiResponse.success("Room created", room));
         } catch (Exception e) {
             return ResponseEntity.badRequest()
-                .body(ApiResponse.error(e.getMessage()));
+                    .body(ApiResponse.error(e.getMessage()));
         }
     }
 
@@ -55,38 +57,78 @@ public class RoomController {
     public ResponseEntity<ApiResponse<List<Room>>> getRooms() {
         List<Room> rooms = roomRepository.findByStatus(RoomStatus.WAITING);
         return ResponseEntity.ok(
-            ApiResponse.success("Rooms retrieved", rooms)
-        );
+                ApiResponse.success("Rooms retrieved", rooms));
+    }
+
+    @GetMapping("/{roomId}")
+    public ResponseEntity<ApiResponse<Room>> getRoomDetails(@PathVariable UUID roomId) {
+        try {
+            Room room = roomRepository.findById(roomId)
+                    .orElseThrow(() -> new RuntimeException("Room not found"));
+            return ResponseEntity.ok(
+                    ApiResponse.success("Room retrieved", room));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(e.getMessage()));
+        }
+    }
+
+    @GetMapping("/{roomId}/players")
+    public ResponseEntity<ApiResponse<List<PlayerRoom>>> getRoomPlayers(@PathVariable UUID roomId) {
+        try {
+            List<PlayerRoom> players = roomService.getRoomPlayers(roomId);
+            return ResponseEntity.ok(
+                    ApiResponse.success("Players retrieved", players));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(e.getMessage()));
+        }
     }
 
     @PostMapping("/{roomId}/join")
+    @Transactional
     public ResponseEntity<ApiResponse<String>> joinRoom(
             @PathVariable UUID roomId,
             @RequestBody Map<String, String> request) {
         try {
             Room room = roomRepository.findById(roomId)
-                .orElseThrow(() -> new RuntimeException("Room not found"));
-            
+                    .orElseThrow(() -> new RuntimeException("Room not found"));
+
             if (room.getCurrentPlayers() >= room.getMaxPlayers()) {
                 throw new RuntimeException("Room is full");
             }
-            
+
             UUID playerId = UUID.fromString(request.get("playerId"));
-            
+
             PlayerRoom playerRoom = new PlayerRoom();
             playerRoom.setPlayerId(playerId);
             playerRoom.setRoomId(roomId);
             playerRoomRepository.save(playerRoom);
-            
+
             room.setCurrentPlayers(room.getCurrentPlayers() + 1);
             roomRepository.save(room);
-            
+
             return ResponseEntity.ok(
-                ApiResponse.success("Joined room", null)
-            );
+                    ApiResponse.success("Joined room", null));
         } catch (Exception e) {
             return ResponseEntity.badRequest()
-                .body(ApiResponse.error(e.getMessage()));
+                    .body(ApiResponse.error(e.getMessage()));
+        }
+    }
+
+    @DeleteMapping("/{roomId}/leave")
+    @Transactional
+    public ResponseEntity<ApiResponse<String>> leaveRoom(
+            @PathVariable UUID roomId,
+            @RequestBody Map<String, String> request) {
+        try {
+            UUID playerId = UUID.fromString(request.get("playerId"));
+            roomService.leaveRoom(roomId, playerId);
+            return ResponseEntity.ok(
+                    ApiResponse.success("Left room successfully", null));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(e.getMessage()));
         }
     }
 }
