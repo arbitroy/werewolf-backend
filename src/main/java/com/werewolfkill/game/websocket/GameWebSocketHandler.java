@@ -15,51 +15,59 @@ import java.util.UUID;
 @Controller
 public class GameWebSocketHandler {
 
-    @Autowired
-    private PlayerRoomRepository playerRoomRepository;
+        @Autowired
+        private PlayerRoomRepository playerRoomRepository;
 
-    @MessageMapping("/game.join")
-    @SendTo("/topic/game")
-    public Map<String, Object> joinGame(Map<String, String> message) {
-        return Map.of(
-                "type", "PLAYER_JOINED",
-                "playerId", message.get("playerId"),
-                "roomId", message.get("roomId"));
-    }
+        @MessageMapping("/game.join")
+        @SendTo("/topic/game")
+        public Map<String, Object> joinGame(Map<String, String> message) {
+                return Map.of(
+                                "type", "PLAYER_JOINED",
+                                "playerId", message.get("playerId"),
+                                "roomId", message.get("roomId"));
+        }
 
-    @MessageMapping("/room/{roomId}/join")
-    @SendTo("/topic/room/{roomId}")
-    public Map<String, Object> handleJoinRoom(@DestinationVariable String roomId,
-            Map<String, String> message) {
+        @MessageMapping("/room/{roomId}/join")
+        @SendTo("/topic/room/{roomId}")
+        public Map<String, Object> handleJoinRoom(@DestinationVariable String roomId,
+                        Map<String, String> message) {
 
-        // Get player info from database to check if they're the host
-        UUID playerId = UUID.fromString(message.get("playerId"));
-        UUID roomUuid = UUID.fromString(roomId);
+                System.out.println("🔍 handleJoinRoom called - roomId: " + roomId + ", message: " + message);
 
-        // Query player_rooms table to get isHost status
-        PlayerRoom playerRoom = playerRoomRepository
-                .findByPlayerIdAndRoomId(playerId, roomUuid)
-                .orElse(null);
+                // Get player info from database to check if they're the host
+                UUID playerId = UUID.fromString(message.get("playerId"));
+                UUID roomUuid = UUID.fromString(roomId);
 
-        boolean isHost = playerRoom != null && playerRoom.getIsHost();
+                // Query player_rooms table to get isHost status
+                PlayerRoom playerRoom = playerRoomRepository
+                                .findByPlayerIdAndRoomId(playerId, roomUuid)
+                                .orElse(null);
 
-        // Broadcast player joined event
-        return Map.of(
-                "type", "PLAYER_JOINED",
-                "playerId", message.get("playerId"),
-                "username", message.get("username"),
-                "isHost", isHost,
-                "timestamp", System.currentTimeMillis());
-    }
+                boolean isHost = playerRoom != null && playerRoom.getIsHost();
 
-    @MessageMapping("/room/{roomId}/leave")
-    @SendTo("/topic/room/{roomId}")
-    public Map<String, Object> handleLeaveRoom(@DestinationVariable String roomId,
-            Map<String, String> message) {
-        // Broadcast player left event
-        return Map.of(
-                "type", "PLAYER_LEFT",
-                "playerId", message.get("playerId"),
-                "timestamp", System.currentTimeMillis());
-    }
+                System.out.println("🔍 Player " + playerId + " isHost status: " + isHost +
+                                " (playerRoom: " + (playerRoom != null ? "found" : "NOT FOUND") + ")");
+
+                // Broadcast player joined event
+                Map<String, Object> response = Map.of(
+                                "type", "PLAYER_JOINED",
+                                "playerId", message.get("playerId"),
+                                "username", message.get("username"),
+                                "isHost", isHost,
+                                "timestamp", System.currentTimeMillis());
+
+                System.out.println("🔍 Broadcasting response: " + response);
+                return response;
+        }
+
+        @MessageMapping("/room/{roomId}/leave")
+        @SendTo("/topic/room/{roomId}")
+        public Map<String, Object> handleLeaveRoom(@DestinationVariable String roomId,
+                        Map<String, String> message) {
+                // Broadcast player left event
+                return Map.of(
+                                "type", "PLAYER_LEFT",
+                                "playerId", message.get("playerId"),
+                                "timestamp", System.currentTimeMillis());
+        }
 }

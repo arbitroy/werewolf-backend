@@ -5,11 +5,14 @@ import com.werewolfkill.game.model.Room;
 import com.werewolfkill.game.model.PlayerRoom;
 import com.werewolfkill.game.model.enums.RoomStatus;
 import com.werewolfkill.game.repository.RoomRepository;
+import com.werewolfkill.game.repository.UserRepository;
 import com.werewolfkill.game.repository.PlayerRoomRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import com.werewolfkill.game.service.RoomService;
+import com.werewolfkill.game.service.WebSocketService;
+
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -28,6 +31,13 @@ public class RoomController {
 
     @Autowired
     private RoomService roomService;
+
+    @Autowired
+    private WebSocketService webSocketService;
+
+    @Autowired
+    private UserRepository userRepository;
+
 
     @PostMapping
     public ResponseEntity<ApiResponse<Room>> createRoom(
@@ -89,26 +99,22 @@ public class RoomController {
 
     @PostMapping("/{roomId}/join")
     @Transactional
-    public ResponseEntity<ApiResponse<String>> joinRoom(
-            @PathVariable UUID roomId,
+    public ResponseEntity<ApiResponse<Object>> joinRoom(
+            @PathVariable String roomId,
             @RequestBody Map<String, String> request) {
         try {
-            Room room = roomRepository.findById(roomId)
-                    .orElseThrow(() -> new RuntimeException("Room not found"));
-
-            if (room.getCurrentPlayers() >= room.getMaxPlayers()) {
-                throw new RuntimeException("Room is full");
-            }
-
             UUID playerId = UUID.fromString(request.get("playerId"));
+            UUID roomUuid = UUID.fromString(roomId);
 
-            PlayerRoom playerRoom = new PlayerRoom();
-            playerRoom.setPlayerId(playerId);
-            playerRoom.setRoomId(roomId);
-            playerRoomRepository.save(playerRoom);
+            // Get username from database for WebSocket broadcast
+            User user = userRepository.findById(playerId)
+                    .orElseThrow(() -> new RuntimeException("User not found"));
 
-            room.setCurrentPlayers(room.getCurrentPlayers() + 1);
-            roomRepository.save(room);
+            // Add player to room via service
+            roomService.joinRoom(roomUuid, playerId);
+
+            // Broadcast to all WebSocket clients in this room
+            webSocketService.broadcastPlayerJoined(roomUuid, playerId, user.getUsername());
 
             return ResponseEntity.ok(
                     ApiResponse.success("Joined room", null));
