@@ -1,6 +1,7 @@
 package com.werewolfkill.game.controller;
 
 import com.werewolfkill.game.dto.ApiResponse;
+import com.werewolfkill.game.dto.PlayerDTO;
 import com.werewolfkill.game.model.Room;
 import com.werewolfkill.game.model.User;
 import com.werewolfkill.game.model.PlayerRoom;
@@ -86,9 +87,10 @@ public class RoomController {
     }
 
     @GetMapping("/{roomId}/players")
-    public ResponseEntity<ApiResponse<List<PlayerRoom>>> getRoomPlayers(@PathVariable UUID roomId) {
+    public ResponseEntity<ApiResponse<List<PlayerDTO>>> getRoomPlayers(@PathVariable UUID roomId) { // CHANGED:
+                                                                                                    // PlayerDTO
         try {
-            List<PlayerRoom> players = roomService.getRoomPlayers(roomId);
+            List<PlayerDTO> players = roomService.getRoomPlayers(roomId); // CHANGED: PlayerDTO
             return ResponseEntity.ok(
                     ApiResponse.success("Players retrieved", players));
         } catch (Exception e) {

@@ -32,32 +32,32 @@ public class GameWebSocketHandler {
         public Map<String, Object> handleJoinRoom(@DestinationVariable String roomId,
                         Map<String, String> message) {
 
-                System.out.println("🔍 handleJoinRoom called - roomId: " + roomId + ", message: " + message);
+                // ADDED: Validate required fields
+                String playerId = message.get("playerId");
+                String username = message.get("username");
+
+                if (playerId == null || username == null) {
+                        throw new IllegalArgumentException("playerId and username are required");
+                }
 
                 // Get player info from database to check if they're the host
-                UUID playerId = UUID.fromString(message.get("playerId"));
+                UUID playerUuid = UUID.fromString(playerId);
                 UUID roomUuid = UUID.fromString(roomId);
 
                 // Query player_rooms table to get isHost status
                 PlayerRoom playerRoom = playerRoomRepository
-                                .findByPlayerIdAndRoomId(playerId, roomUuid)
+                                .findByPlayerIdAndRoomId(playerUuid, roomUuid)
                                 .orElse(null);
 
                 boolean isHost = playerRoom != null && playerRoom.getIsHost();
 
-                System.out.println("🔍 Player " + playerId + " isHost status: " + isHost +
-                                " (playerRoom: " + (playerRoom != null ? "found" : "NOT FOUND") + ")");
-
-                // Broadcast player joined event
-                Map<String, Object> response = Map.of(
+                // Broadcast player joined event with complete info
+                return Map.of(
                                 "type", "PLAYER_JOINED",
-                                "playerId", message.get("playerId"),
-                                "username", message.get("username"),
+                                "playerId", playerId,
+                                "username", username, // KEPT: Already present
                                 "isHost", isHost,
                                 "timestamp", System.currentTimeMillis());
-
-                System.out.println("🔍 Broadcasting response: " + response);
-                return response;
         }
 
         @MessageMapping("/room/{roomId}/leave")
