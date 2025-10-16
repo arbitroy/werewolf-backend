@@ -4,12 +4,19 @@ import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.SendTo;
 import org.springframework.stereotype.Controller;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import com.werewolfkill.game.model.PlayerRoom;
+import com.werewolfkill.game.repository.PlayerRoomRepository;
 
 import java.util.Map;
 import java.util.UUID;
 
 @Controller
 public class GameWebSocketHandler {
+
+    @Autowired
+    private PlayerRoomRepository playerRoomRepository;
 
     @MessageMapping("/game.join")
     @SendTo("/topic/game")
@@ -41,7 +48,7 @@ public class GameWebSocketHandler {
                 "type", "PLAYER_JOINED",
                 "playerId", message.get("playerId"),
                 "username", message.get("username"),
-                "isHost", isHost, // ✅ ADD THIS
+                "isHost", isHost,
                 "timestamp", System.currentTimeMillis());
     }
 
