@@ -4,6 +4,9 @@ import com.werewolfkill.game.websocket.dto.GameUpdateMessage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+import com.werewolfkill.game.model.PlayerRoom;
+import com.werewolfkill.game.repository.PlayerRoomRepository;
+
 
 import java.util.HashMap;
 import java.util.Map;
