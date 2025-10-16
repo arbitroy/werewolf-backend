@@ -3,6 +3,7 @@ package com.werewolfkill.game.websocket;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.handler.annotation.SendTo;
 import org.springframework.stereotype.Controller;
+import org.springframework.messaging.handler.annotation.DestinationVariable;
 
 import java.util.Map;
 
