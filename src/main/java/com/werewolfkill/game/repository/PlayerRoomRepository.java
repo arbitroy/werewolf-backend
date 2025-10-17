@@ -12,4 +12,6 @@ public interface PlayerRoomRepository extends JpaRepository<PlayerRoom, UUID> {
     List<PlayerRoom> findByRoomId(UUID roomId);
     Optional<PlayerRoom> findByPlayerIdAndRoomId(UUID playerId, UUID roomId);
     void deleteByRoomId(UUID roomId);
+    long countByRoomId(UUID roomId);
+
 }

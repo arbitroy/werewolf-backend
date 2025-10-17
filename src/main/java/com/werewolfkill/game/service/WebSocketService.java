@@ -16,7 +16,7 @@ public class WebSocketService {
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
-    
+
     @Autowired
     private PlayerRoomRepository playerRoomRepository;
 
@@ -25,6 +25,10 @@ public class WebSocketService {
      */
     public void sendGameUpdate(UUID roomId, GameUpdateMessage message) {
         messagingTemplate.convertAndSend("/topic/game/" + roomId, (Object) message);
+    }
+
+    public void sendGameUpdate(UUID roomId, Object message) {
+        messagingTemplate.convertAndSend("/topic/game/" + roomId, message);
     }
 
     /**
@@ -42,16 +46,16 @@ public class WebSocketService {
         PlayerRoom playerRoom = playerRoomRepository
                 .findByPlayerIdAndRoomId(playerId, roomId)
                 .orElse(null);
-        
+
         boolean isHost = playerRoom != null && playerRoom.getIsHost();
-        
+
         Map<String, Object> message = new HashMap<>();
         message.put("type", "PLAYER_JOINED");
         message.put("playerId", playerId.toString());
         message.put("username", username);
         message.put("isHost", isHost);
         message.put("timestamp", System.currentTimeMillis());
-        
+
         System.out.println("🔍 Broadcasting PLAYER_JOINED: " + message);
         messagingTemplate.convertAndSend("/topic/room/" + roomId, (Object) message);
     }
@@ -64,7 +68,7 @@ public class WebSocketService {
         message.put("type", "PLAYER_LEFT");
         message.put("playerId", playerId.toString());
         message.put("timestamp", System.currentTimeMillis());
-        
+
         messagingTemplate.convertAndSend("/topic/room/" + roomId, (Object) message);
     }
 
@@ -76,7 +80,7 @@ public class WebSocketService {
         message.put("type", "GAME_STARTED");
         message.put("roomId", roomId.toString());
         message.put("timestamp", System.currentTimeMillis());
-        
+
         messagingTemplate.convertAndSend("/topic/room/" + roomId, (Object) message);
     }
 }
