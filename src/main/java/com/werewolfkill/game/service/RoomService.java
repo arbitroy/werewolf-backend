@@ -1,19 +1,20 @@
 package com.werewolfkill.game.service;
 
-import com.werewolfkill.game.dto.PlayerDTO;  // ADDED
+import com.werewolfkill.game.dto.PlayerDTO; // ADDED
 import com.werewolfkill.game.model.PlayerRoom;
 import com.werewolfkill.game.model.Room;
-import com.werewolfkill.game.model.User;  // ADDED
+import com.werewolfkill.game.model.User; // ADDED
 import com.werewolfkill.game.model.enums.RoomStatus;
 import com.werewolfkill.game.repository.PlayerRoomRepository;
 import com.werewolfkill.game.repository.RoomRepository;
-import com.werewolfkill.game.repository.UserRepository;  // ADDED
+import com.werewolfkill.game.repository.UserRepository; // ADDED
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;  // ADDED
+import java.util.ArrayList; // ADDED
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -25,7 +26,7 @@ public class RoomService {
     @Autowired
     private PlayerRoomRepository playerRoomRepository;
 
-    @Autowired  // ADDED
+    @Autowired // ADDED
     private UserRepository userRepository;
 
     public List<Room> getAvailableRooms() {
@@ -65,9 +66,12 @@ public class RoomService {
             throw new RuntimeException("Game already started");
         }
 
-        // Check if player already in room
-        if (playerRoomRepository.findByPlayerIdAndRoomId(playerId, roomId).isPresent()) {
-            throw new RuntimeException("Already in room");
+        // Check if player already in room - MAKE IT IDEMPOTENT
+        Optional<PlayerRoom> existingPlayerRoom = playerRoomRepository.findByPlayerIdAndRoomId(playerId, roomId);
+        if (existingPlayerRoom.isPresent()) {
+            // Player already in room - this is OK, just return without error
+            System.out.println("⚠️ Player " + playerId + " already in room " + roomId + ", skipping add");
+            return; // CHANGED: Don't throw exception, just return
         }
 
         PlayerRoom playerRoom = new PlayerRoom();
@@ -78,6 +82,8 @@ public class RoomService {
 
         room.setCurrentPlayers(room.getCurrentPlayers() + 1);
         roomRepository.save(room);
+
+        System.out.println("✅ Player " + playerId + " added to room " + roomId);
     }
 
     @Transactional
@@ -115,7 +121,7 @@ public class RoomService {
     public List<PlayerDTO> getRoomPlayers(UUID roomId) {
         List<PlayerRoom> playerRooms = playerRoomRepository.findByRoomId(roomId);
         List<PlayerDTO> players = new ArrayList<>();
-        
+
         for (PlayerRoom pr : playerRooms) {
             User user = userRepository.findById(pr.getPlayerId()).orElse(null);
             PlayerDTO dto = new PlayerDTO();
@@ -126,7 +132,7 @@ public class RoomService {
             dto.setStatus(pr.getStatus() != null ? pr.getStatus().toString() : "ALIVE");
             players.add(dto);
         }
-        
+
         return players;
     }
 }
