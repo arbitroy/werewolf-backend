@@ -1,8 +1,8 @@
 package com.werewolfkill.game.websocket;
 
 import org.springframework.messaging.handler.annotation.MessageMapping;
-import org.springframework.messaging.handler.annotation.SendTo;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.context.event.EventListener;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 import org.springframework.stereotype.Controller;
@@ -12,10 +12,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.werewolfkill.game.model.PlayerRoom;
 import com.werewolfkill.game.model.User;
-import com.werewolfkill.game.model.Room;
 import com.werewolfkill.game.repository.PlayerRoomRepository;
 import com.werewolfkill.game.repository.UserRepository;
-import com.werewolfkill.game.repository.RoomRepository;
 import com.werewolfkill.game.service.WebSocketService;
 
 import java.util.Map;
@@ -34,14 +32,13 @@ public class GameWebSocketHandler {
         private UserRepository userRepository;
 
         @Autowired
-        private RoomRepository roomRepository;
+        private WebSocketService webSocketService;
 
         @Autowired
-        private WebSocketService webSocketService;
+        private SimpMessagingTemplate messagingTemplate;
 
         /**
          * Handle player joining room via WebSocket
-         * This is the PRIMARY join mechanism
          */
         @MessageMapping("/room/{roomId}/join")
         @Transactional
@@ -69,7 +66,7 @@ public class GameWebSocketHandler {
                 headerAccessor.getSessionAttributes().put("roomId", roomId);
                 headerAccessor.getSessionAttributes().put("username", username);
 
-                // ✅ FIX: Get EXISTING players BEFORE adding new one
+                // Get EXISTING players BEFORE adding new one
                 List<PlayerRoom> existingPlayers = playerRoomRepository.findByRoomId(roomUuid);
                 System.out.println("🔍 Existing players in room: " + existingPlayers.size());
 
@@ -78,7 +75,6 @@ public class GameWebSocketHandler {
                                 .findByPlayerIdAndRoomId(playerUuid, roomUuid)
                                 .orElseGet(() -> {
                                         // NEW PLAYER - Check if they should be host
-                                        // ✅ FIX: Check ACTUAL existing players, not DB count
                                         boolean shouldBeHost = existingPlayers.isEmpty();
 
                                         System.out.println("🆕 New player joining");
@@ -94,7 +90,7 @@ public class GameWebSocketHandler {
 
                 System.out.println("✅ Player in room: " + username + ", isHost=" + playerRoom.getIsHost());
 
-                // ✅ FIX: Send full player list to the NEW joiner FIRST
+                // Send full player list to the NEW joiner FIRST
                 sendPlayerListToNewJoiner(roomUuid, playerUuid, headerAccessor);
 
                 // Then broadcast the new player to EVERYONE (including self)
@@ -107,7 +103,7 @@ public class GameWebSocketHandler {
         }
 
         /**
-         * ✅ NEW: Send complete player list to newly joined player
+         * Send complete player list to newly joined player
          */
         private void sendPlayerListToNewJoiner(UUID roomId, UUID joinerId, StompHeaderAccessor headerAccessor) {
                 List<PlayerRoom> playersInRoom = playerRoomRepository.findByRoomId(roomId);
@@ -126,46 +122,16 @@ public class GameWebSocketHandler {
                 Map<String, Object> response = new HashMap<>();
                 response.put("type", "PLAYERS_LIST");
                 response.put("players", playerList);
+                response.put("targetPlayerId", joinerId.toString());
 
-                System.out.println("📋 Sending PLAYERS_LIST to new joiner: " + playerList.size() + " players");
+                System.out.println("📋 Broadcasting PLAYERS_LIST: " + playerList.size() + " players");
 
-                // ✅ FIX: Send to specific user session, not broadcast
-                messagingTemplate.convertAndSendToUser(
-                                headerAccessor.getSessionId(),
-                                "/queue/players",
-                                response);
-        }
-
-        /**
-         * Send complete player list to newly joined player
-         */
-        private void sendPlayerListToJoiner(UUID roomId, StompHeaderAccessor headerAccessor) {
-                List<PlayerRoom> playersInRoom = playerRoomRepository.findByRoomId(roomId);
-
-                List<Map<String, Object>> playerList = playersInRoom.stream()
-                                .map(pr -> {
-                                        User user = userRepository.findById(pr.getPlayerId()).orElse(null);
-                                        Map<String, Object> playerData = new HashMap<>();
-                                        playerData.put("playerId", pr.getPlayerId().toString());
-                                        playerData.put("username", user != null ? user.getUsername() : "Unknown");
-                                        playerData.put("isHost", pr.getIsHost());
-                                        return playerData;
-                                })
-                                .toList();
-
-                Map<String, Object> response = Map.of(
-                                "type", "PLAYERS_LIST",
-                                "players", playerList);
-
-                webSocketService.sendPrivateMessage(
-                                headerAccessor.getSessionAttributes().get("playerId").toString(),
-                                "/topic/room/" + roomId,
-                                response);
+                String destination = "/topic/room/" + roomId.toString();
+                messagingTemplate.convertAndSend(destination, (Object) response);
         }
 
         /**
          * Handle WebSocket disconnection
-         * Critical for host reassignment!
          */
         @EventListener
         @Transactional
@@ -177,7 +143,7 @@ public class GameWebSocketHandler {
                 String username = (String) accessor.getSessionAttributes().get("username");
 
                 if (playerId == null || roomId == null) {
-                        return; // Not a game session
+                        return;
                 }
 
                 System.out.println("═══════════════════════════════════════");
@@ -188,7 +154,6 @@ public class GameWebSocketHandler {
                 UUID playerUuid = UUID.fromString(playerId);
                 UUID roomUuid = UUID.fromString(roomId);
 
-                // Find player in room
                 Optional<PlayerRoom> playerRoomOpt = playerRoomRepository
                                 .findByPlayerIdAndRoomId(playerUuid, roomUuid);
 
@@ -225,7 +190,6 @@ public class GameWebSocketHandler {
 
                 if (remainingPlayers.isEmpty()) {
                         System.out.println("❌ No players left in room");
-                        // Optional: Delete empty room
                         return;
                 }
 
@@ -240,10 +204,10 @@ public class GameWebSocketHandler {
                 System.out.println("👑 NEW HOST: " + newHostUsername);
 
                 // Broadcast host change
-                Map<String, Object> hostChangeMessage = Map.of(
-                                "type", "HOST_CHANGED",
-                                "newHostId", newHost.getPlayerId().toString(),
-                                "newHostUsername", newHostUsername);
+                Map<String, Object> hostChangeMessage = new HashMap<>();
+                hostChangeMessage.put("type", "HOST_CHANGED");
+                hostChangeMessage.put("newHostId", newHost.getPlayerId().toString());
+                hostChangeMessage.put("newHostUsername", newHostUsername);
 
                 webSocketService.sendGameUpdate(roomId, hostChangeMessage);
         }

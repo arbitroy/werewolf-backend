@@ -16,7 +16,7 @@ public class WebSocketService {
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
-
+    
     @Autowired
     private PlayerRoomRepository playerRoomRepository;
 
@@ -24,11 +24,15 @@ public class WebSocketService {
      * Send game update to all players in a room
      */
     public void sendGameUpdate(UUID roomId, GameUpdateMessage message) {
-        messagingTemplate.convertAndSend("/topic/game/" + roomId, (Object) message);
+        messagingTemplate.convertAndSend("/topic/game/" + roomId.toString(), message);
     }
 
+    /**
+     * ✅ FIXED: Overload for generic objects
+     */
     public void sendGameUpdate(UUID roomId, Object message) {
-        messagingTemplate.convertAndSend("/topic/game/" + roomId, message);
+        String destination = "/topic/game/" + roomId.toString();
+        messagingTemplate.convertAndSend(destination, message);
     }
 
     /**
@@ -46,18 +50,21 @@ public class WebSocketService {
         PlayerRoom playerRoom = playerRoomRepository
                 .findByPlayerIdAndRoomId(playerId, roomId)
                 .orElse(null);
-
+        
         boolean isHost = playerRoom != null && playerRoom.getIsHost();
-
+        
         Map<String, Object> message = new HashMap<>();
         message.put("type", "PLAYER_JOINED");
         message.put("playerId", playerId.toString());
         message.put("username", username);
         message.put("isHost", isHost);
         message.put("timestamp", System.currentTimeMillis());
-
+        
         System.out.println("📢 Broadcasting PLAYER_JOINED: " + username + ", isHost=" + isHost);
-        messagingTemplate.convertAndSend("/topic/room/" + roomId, message);
+        
+        // ✅ FIXED: Explicit destination parameter to avoid ambiguity
+        String destination = "/topic/room/" + roomId.toString();
+        messagingTemplate.convertAndSend(destination, (Object) message);
     }
 
     /**
@@ -68,8 +75,9 @@ public class WebSocketService {
         message.put("type", "PLAYER_LEFT");
         message.put("playerId", playerId.toString());
         message.put("timestamp", System.currentTimeMillis());
-
-        messagingTemplate.convertAndSend("/topic/room/" + roomId, (Object) message);
+        
+        String destination = "/topic/room/" + roomId.toString();
+        messagingTemplate.convertAndSend(destination, (Object) message);
     }
 
     /**
@@ -80,7 +88,8 @@ public class WebSocketService {
         message.put("type", "GAME_STARTED");
         message.put("roomId", roomId.toString());
         message.put("timestamp", System.currentTimeMillis());
-
-        messagingTemplate.convertAndSend("/topic/room/" + roomId, (Object) message);
+        
+        String destination = "/topic/room/" + roomId.toString();
+        messagingTemplate.convertAndSend(destination, (Object) message);
     }
 }
