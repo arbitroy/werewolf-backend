@@ -126,13 +126,19 @@ public class RoomController {
 
             System.out.println("🔵 Player added to room via service");
 
-            // Only broadcast if this is a NEW join (not a duplicate)
-            if (!wasAlreadyInRoom) {
-                webSocketService.broadcastPlayerJoined(roomUuid, playerId, user.getUsername());
-                System.out.println("✅ Join successful, broadcasting PLAYER_JOINED");
-            } else {
-                System.out.println("✅ Player was already in room, skipping broadcast");
-            }
+            // ❌ COMMENT OUT THIS BLOCK - Let WebSocket handler broadcast instead
+            /*
+             * if (!wasAlreadyInRoom) {
+             * webSocketService.broadcastPlayerJoined(roomUuid, playerId,
+             * user.getUsername());
+             * System.out.println("✅ Join successful, broadcasting PLAYER_JOINED");
+             * } else {
+             * System.out.println("✅ Player was already in room, skipping broadcast");
+             * }
+             */
+
+            // ✅ NEW: Let the WebSocket handler do the broadcasting
+            System.out.println("✅ Join successful, WebSocket handler will broadcast");
 
             return ResponseEntity.ok(
                     ApiResponse.success("Joined room", null));
