@@ -56,8 +56,8 @@ public class WebSocketService {
         message.put("isHost", isHost);
         message.put("timestamp", System.currentTimeMillis());
 
-        System.out.println("🔍 Broadcasting PLAYER_JOINED: " + message);
-        messagingTemplate.convertAndSend("/topic/room/" + roomId, (Object) message);
+        System.out.println("📢 Broadcasting PLAYER_JOINED: " + username + ", isHost=" + isHost);
+        messagingTemplate.convertAndSend("/topic/room/" + roomId, message);
     }
 
     /**

@@ -69,16 +69,19 @@ public class GameWebSocketHandler {
                 headerAccessor.getSessionAttributes().put("roomId", roomId);
                 headerAccessor.getSessionAttributes().put("username", username);
 
+                // ✅ FIX: Get EXISTING players BEFORE adding new one
+                List<PlayerRoom> existingPlayers = playerRoomRepository.findByRoomId(roomUuid);
+                System.out.println("🔍 Existing players in room: " + existingPlayers.size());
+
                 // Get or create player in room
                 PlayerRoom playerRoom = playerRoomRepository
                                 .findByPlayerIdAndRoomId(playerUuid, roomUuid)
                                 .orElseGet(() -> {
                                         // NEW PLAYER - Check if they should be host
-                                        long existingPlayers = playerRoomRepository.countByRoomId(roomUuid);
-                                        boolean shouldBeHost = (existingPlayers == 0);
+                                        // ✅ FIX: Check ACTUAL existing players, not DB count
+                                        boolean shouldBeHost = existingPlayers.isEmpty();
 
-                                        System.out.println(
-                                                        "🆕 New player joining. Existing players: " + existingPlayers);
+                                        System.out.println("🆕 New player joining");
                                         System.out.println("🎯 Should be host: " + shouldBeHost);
 
                                         PlayerRoom newPlayerRoom = new PlayerRoom();
@@ -91,16 +94,46 @@ public class GameWebSocketHandler {
 
                 System.out.println("✅ Player in room: " + username + ", isHost=" + playerRoom.getIsHost());
 
-                // Broadcast to all clients in room
+                // ✅ FIX: Send full player list to the NEW joiner FIRST
+                sendPlayerListToNewJoiner(roomUuid, playerUuid, headerAccessor);
+
+                // Then broadcast the new player to EVERYONE (including self)
                 webSocketService.broadcastPlayerJoined(
                                 roomUuid,
                                 playerUuid,
                                 username);
 
-                // Send full player list to joining client
-                sendPlayerListToJoiner(roomUuid, headerAccessor);
-
                 System.out.println("═══════════════════════════════════════");
+        }
+
+        /**
+         * ✅ NEW: Send complete player list to newly joined player
+         */
+        private void sendPlayerListToNewJoiner(UUID roomId, UUID joinerId, StompHeaderAccessor headerAccessor) {
+                List<PlayerRoom> playersInRoom = playerRoomRepository.findByRoomId(roomId);
+
+                List<Map<String, Object>> playerList = playersInRoom.stream()
+                                .map(pr -> {
+                                        User user = userRepository.findById(pr.getPlayerId()).orElse(null);
+                                        Map<String, Object> playerData = new HashMap<>();
+                                        playerData.put("playerId", pr.getPlayerId().toString());
+                                        playerData.put("username", user != null ? user.getUsername() : "Unknown");
+                                        playerData.put("isHost", pr.getIsHost());
+                                        return playerData;
+                                })
+                                .toList();
+
+                Map<String, Object> response = new HashMap<>();
+                response.put("type", "PLAYERS_LIST");
+                response.put("players", playerList);
+
+                System.out.println("📋 Sending PLAYERS_LIST to new joiner: " + playerList.size() + " players");
+
+                // ✅ FIX: Send to specific user session, not broadcast
+                messagingTemplate.convertAndSendToUser(
+                                headerAccessor.getSessionId(),
+                                "/queue/players",
+                                response);
         }
 
         /**
