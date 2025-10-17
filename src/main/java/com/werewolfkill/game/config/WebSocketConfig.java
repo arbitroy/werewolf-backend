@@ -12,22 +12,24 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
-        // Enable simple broker for broadcasting
         config.enableSimpleBroker("/topic");
-        
-        // Prefix for client messages
         config.setApplicationDestinationPrefixes("/app");
     }
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
-        // WebSocket endpoint with SockJS fallback
+        // ✅ IMPROVED: More explicit CORS configuration
         registry.addEndpoint("/ws/game")
                 .setAllowedOriginPatterns("*")
-                .withSockJS();
+                .setAllowedHeaders("*")
+                .setAllowedMethods("*")
+                .withSockJS()
+                .setClientLibraryUrl("https://cdn.jsdelivr.net/npm/sockjs-client@1.5.2/dist/sockjs.min.js");
         
-        // Also register without SockJS for native WebSocket support
+        // Native WebSocket without SockJS
         registry.addEndpoint("/ws/game")
-                .setAllowedOriginPatterns("*");
+                .setAllowedOriginPatterns("*")
+                .setAllowedHeaders("*")
+                .setAllowedMethods("*");
     }
 }

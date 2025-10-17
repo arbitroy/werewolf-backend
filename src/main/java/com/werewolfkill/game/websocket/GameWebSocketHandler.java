@@ -32,7 +32,6 @@ public class GameWebSocketHandler {
         public Map<String, Object> handleJoinRoom(@DestinationVariable String roomId,
                         Map<String, String> message) {
 
-                // ADDED: Validate required fields
                 String playerId = message.get("playerId");
                 String username = message.get("username");
 
@@ -40,24 +39,7 @@ public class GameWebSocketHandler {
                         throw new IllegalArgumentException("playerId and username are required");
                 }
 
-                // Get player info from database to check if they're the host
-                UUID playerUuid = UUID.fromString(playerId);
-                UUID roomUuid = UUID.fromString(roomId);
-
-                // Query player_rooms table to get isHost status
-                PlayerRoom playerRoom = playerRoomRepository
-                                .findByPlayerIdAndRoomId(playerUuid, roomUuid)
-                                .orElse(null);
-
-                boolean isHost = playerRoom != null && playerRoom.getIsHost();
-
-                // Broadcast player joined event with complete info
-                return Map.of(
-                                "type", "PLAYER_JOINED",
-                                "playerId", playerId,
-                                "username", username, // KEPT: Already present
-                                "isHost", isHost,
-                                "timestamp", System.currentTimeMillis());
+                System.out.println("✅ WebSocket join message received for room " + roomId);
         }
 
         @MessageMapping("/room/{roomId}/leave")
