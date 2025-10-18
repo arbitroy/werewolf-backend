@@ -79,17 +79,15 @@
 			<scope>test</scope>
 		</dependency>
 
-		<!-- ✅ Flyway with explicit stable version -->
+		<!-- ✅ Flyway - let Spring Boot manage versions -->
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-core</artifactId>
-			<version>runtime</version>
 		</dependency>
 
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-database-postgresql</artifactId>
-			<version>10.22.1</version>
 			<scope>runtime</scope>
 		</dependency>
 	</dependencies>
