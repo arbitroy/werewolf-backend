@@ -1,168 +1,130 @@
 package com.werewolfkill.game.controller;
 
 import com.werewolfkill.game.dto.ApiResponse;
-import com.werewolfkill.game.dto.PlayerDTO;
 import com.werewolfkill.game.model.Room;
-import com.werewolfkill.game.model.User;
-import com.werewolfkill.game.model.PlayerRoom;
-import com.werewolfkill.game.model.enums.RoomStatus;
 import com.werewolfkill.game.repository.RoomRepository;
-import com.werewolfkill.game.repository.UserRepository;
-import com.werewolfkill.game.repository.PlayerRoomRepository;
+import com.werewolfkill.game.service.RoomService;
+import com.werewolfkill.game.session.SessionManager;
+import com.werewolfkill.game.session.SessionManager.PlayerInfo;
+import com.werewolfkill.game.session.SessionManager.RoomSession;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import com.werewolfkill.game.service.RoomService;
-import com.werewolfkill.game.service.WebSocketService;
 
-import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/rooms")
 public class RoomController {
 
     @Autowired
-    private RoomRepository roomRepository;
-
-    @Autowired
-    private PlayerRoomRepository playerRoomRepository;
-
-    @Autowired
     private RoomService roomService;
 
     @Autowired
-    private WebSocketService webSocketService;
+    private SessionManager sessionManager;
 
-    @Autowired
-    private UserRepository userRepository;
-
-    @PostMapping
-    public ResponseEntity<ApiResponse<Room>> createRoom(
-            @RequestBody Map<String, Object> request) {
-        try {
-            Room room = new Room();
-            room.setName((String) request.get("name"));
-            room.setHostId(UUID.fromString((String) request.get("hostId")));
-            room.setMaxPlayers((Integer) request.getOrDefault("maxPlayers", 8));
-            room.setCurrentPlayers(1);
-            room = roomRepository.save(room);
-
-            // Add host as first player
-            PlayerRoom hostPlayer = new PlayerRoom();
-            hostPlayer.setPlayerId(room.getHostId());
-            hostPlayer.setRoomId(room.getId());
-            hostPlayer.setIsHost(true);
-            playerRoomRepository.save(hostPlayer);
-
-            return ResponseEntity.ok(
-                    ApiResponse.success("Room created", room));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error(e.getMessage()));
-        }
-    }
-
+    /**
+     * Get all rooms with live session info
+     */
     @GetMapping
-    public ResponseEntity<ApiResponse<List<Room>>> getRooms() {
-        List<Room> rooms = roomRepository.findByStatus(RoomStatus.WAITING);
-        return ResponseEntity.ok(
-                ApiResponse.success("Rooms retrieved", rooms));
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getRooms() {
+        List<Room> rooms = roomService.getAllRooms();
+
+        // Augment with live session data
+        List<Map<String, Object>> roomsWithSessionInfo = rooms.stream()
+            .map(room -> {
+                Map<String, Object> roomData = new HashMap<>();
+                roomData.put("id", room.getId().toString());
+                roomData.put("name", room.getName());
+                roomData.put("maxPlayers", room.getMaxPlayers());
+                roomData.put("gameMode", room.getGameMode());
+                roomData.put("isPublic", room.getIsPublic());
+                roomData.put("createdAt", room.getCreatedAt().toString());
+
+                // Add live session data
+                int currentPlayers = sessionManager.getPlayerCount(room.getId());
+                roomData.put("currentPlayers", currentPlayers);
+                roomData.put("isActive", currentPlayers > 0);
+
+                return roomData;
+            })
+            .collect(Collectors.toList());
+
+        return ResponseEntity.ok(ApiResponse.success("Rooms retrieved", roomsWithSessionInfo));
     }
 
+    /**
+     * Get room details with live players
+     */
     @GetMapping("/{roomId}")
-    public ResponseEntity<ApiResponse<Room>> getRoomDetails(@PathVariable UUID roomId) {
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getRoomDetails(@PathVariable UUID roomId) {
+        Room room = roomService.getRoomById(roomId).orElse(null);
+        if (room == null) {
+            return ResponseEntity.badRequest()
+                .body(ApiResponse.error("Room not found"));
+        }
+
+        Map<String, Object> roomData = new HashMap<>();
+        roomData.put("id", room.getId().toString());
+        roomData.put("name", room.getName());
+        roomData.put("maxPlayers", room.getMaxPlayers());
+        roomData.put("gameMode", room.getGameMode());
+
+        // Add live session data
+        Optional<RoomSession> session = sessionManager.getSession(roomId);
+        if (session.isPresent()) {
+            RoomSession s = session.get();
+            roomData.put("currentPlayers", s.getPlayers().size());
+            PlayerInfo host = s.getPlayers().get(s.getHostSessionId());
+            roomData.put("hostUsername", host != null ? host.getUsername() : null);
+            roomData.put("currentPhase", s.getCurrentPhase());
+        } else {
+            roomData.put("currentPlayers", 0);
+            roomData.put("hostUsername", null);
+            roomData.put("currentPhase", "WAITING");
+        }
+
+        return ResponseEntity.ok(ApiResponse.success("Room retrieved", roomData));
+    }
+
+    /**
+     * Create a new room
+     */
+    @PostMapping
+    public ResponseEntity<ApiResponse<Room>> createRoom(@RequestBody Map<String, Object> request) {
         try {
-            Room room = roomRepository.findById(roomId)
-                    .orElseThrow(() -> new RuntimeException("Room not found"));
-            return ResponseEntity.ok(
-                    ApiResponse.success("Room retrieved", room));
+            String name = (String) request.get("name");
+            UUID createdBy = UUID.fromString((String) request.get("hostId"));
+            Integer maxPlayers = (Integer) request.getOrDefault("maxPlayers", 8);
+
+            Room room = roomService.createRoom(name, createdBy, maxPlayers);
+
+            return ResponseEntity.ok(ApiResponse.success("Room created", room));
         } catch (Exception e) {
             return ResponseEntity.badRequest()
-                    .body(ApiResponse.error(e.getMessage()));
+                .body(ApiResponse.error(e.getMessage()));
         }
     }
 
-    @GetMapping("/{roomId}/players")
-    public ResponseEntity<ApiResponse<List<PlayerDTO>>> getRoomPlayers(@PathVariable UUID roomId) { // CHANGED:
-                                                                                                    // PlayerDTO
+    /**
+     * Delete a room (and its session)
+     */
+    @DeleteMapping("/{roomId}")
+    public ResponseEntity<ApiResponse<String>> deleteRoom(@PathVariable UUID roomId) {
         try {
-            List<PlayerDTO> players = roomService.getRoomPlayers(roomId); // CHANGED: PlayerDTO
-            return ResponseEntity.ok(
-                    ApiResponse.success("Players retrieved", players));
+            // Destroy session first
+            sessionManager.destroySession(roomId);
+
+            // Then delete from database
+            roomService.deleteRoom(roomId);
+
+            return ResponseEntity.ok(ApiResponse.success("Room deleted", null));
         } catch (Exception e) {
             return ResponseEntity.badRequest()
-                    .body(ApiResponse.error(e.getMessage()));
+                .body(ApiResponse.error(e.getMessage()));
         }
     }
 
-    @PostMapping("/{roomId}/join")
-    @Transactional
-    public ResponseEntity<ApiResponse<Object>> joinRoom(
-            @PathVariable String roomId,
-            @RequestBody Map<String, String> request) {
-        try {
-            System.out.println("🔵 Join room request - roomId: " + roomId + ", body: " + request);
 
-            UUID playerId = UUID.fromString(request.get("playerId"));
-            UUID roomUuid = UUID.fromString(roomId);
-
-            // Check if player is already in room BEFORE joining
-            boolean wasAlreadyInRoom = playerRoomRepository
-                    .findByPlayerIdAndRoomId(playerId, roomUuid)
-                    .isPresent();
-
-            // Get username from database for WebSocket broadcast
-            User user = userRepository.findById(playerId)
-                    .orElseThrow(() -> new RuntimeException("User not found"));
-
-            System.out.println("🔵 User found: " + user.getUsername() + ", already in room: " + wasAlreadyInRoom);
-
-            // Add player to room via service (idempotent)
-            roomService.joinRoom(roomUuid, playerId);
-
-            System.out.println("🔵 Player added to room via service");
-
-            // ❌ COMMENT OUT THIS BLOCK - Let WebSocket handler broadcast instead
-            /*
-             * if (!wasAlreadyInRoom) {
-             * webSocketService.broadcastPlayerJoined(roomUuid, playerId,
-             * user.getUsername());
-             * System.out.println("✅ Join successful, broadcasting PLAYER_JOINED");
-             * } else {
-             * System.out.println("✅ Player was already in room, skipping broadcast");
-             * }
-             */
-
-            // ✅ NEW: Let the WebSocket handler do the broadcasting
-            System.out.println("✅ Join successful, WebSocket handler will broadcast");
-
-            return ResponseEntity.ok(
-                    ApiResponse.success("Joined room", null));
-        } catch (Exception e) {
-            System.err.println("❌ Join room error: " + e.getMessage());
-            e.printStackTrace();
-            return ResponseEntity.status(500)
-                    .body(ApiResponse.error(e.getMessage()));
-        }
-    }
-
-    @DeleteMapping("/{roomId}/leave")
-    @Transactional
-    public ResponseEntity<ApiResponse<String>> leaveRoom(
-            @PathVariable UUID roomId,
-            @RequestBody Map<String, String> request) {
-        try {
-            UUID playerId = UUID.fromString(request.get("playerId"));
-            roomService.leaveRoom(roomId, playerId);
-            return ResponseEntity.ok(
-                    ApiResponse.success("Left room successfully", null));
-        } catch (Exception e) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error(e.getMessage()));
-        }
-    }
 }

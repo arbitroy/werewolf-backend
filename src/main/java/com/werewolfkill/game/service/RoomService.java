@@ -1,18 +1,12 @@
 package com.werewolfkill.game.service;
 
-import com.werewolfkill.game.dto.PlayerDTO; // ADDED
-import com.werewolfkill.game.model.PlayerRoom;
 import com.werewolfkill.game.model.Room;
-import com.werewolfkill.game.model.User; // ADDED
-import com.werewolfkill.game.model.enums.RoomStatus;
-import com.werewolfkill.game.repository.PlayerRoomRepository;
 import com.werewolfkill.game.repository.RoomRepository;
-import com.werewolfkill.game.repository.UserRepository; // ADDED
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList; // ADDED
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -23,116 +17,72 @@ public class RoomService {
     @Autowired
     private RoomRepository roomRepository;
 
-    @Autowired
-    private PlayerRoomRepository playerRoomRepository;
-
-    @Autowired // ADDED
-    private UserRepository userRepository;
-
-    public List<Room> getAvailableRooms() {
-        return roomRepository.findByStatus(RoomStatus.WAITING);
+    /**
+     * Get all rooms (persistent metadata only)
+     */
+    public List<Room> getAllRooms() {
+        return roomRepository.findAll();
     }
 
+    /**
+     * Get room by ID
+     */
+    public Optional<Room> getRoomById(UUID roomId) {
+        return roomRepository.findById(roomId);
+    }
+
+    /**
+     * Create a new room (persists configuration only)
+     */
     @Transactional
-    public Room createRoom(String name, UUID hostId, Integer maxPlayers) {
+    public Room createRoom(String name, UUID createdBy, Integer maxPlayers) {
+        // Check for duplicate names
+        if (roomRepository.findByName(name).isPresent()) {
+            throw new IllegalArgumentException("Room name already exists");
+        }
+        
         Room room = new Room();
         room.setName(name);
-        room.setHostId(hostId);
+        room.setCreatedBy(createdBy);
         room.setMaxPlayers(maxPlayers != null ? maxPlayers : 8);
-        room.setCurrentPlayers(1);
-        room.setStatus(RoomStatus.WAITING);
-        room = roomRepository.save(room);
-
-        // Add host as first player
-        PlayerRoom hostPlayer = new PlayerRoom();
-        hostPlayer.setPlayerId(hostId);
-        hostPlayer.setRoomId(room.getId());
-        hostPlayer.setIsHost(true);
-        playerRoomRepository.save(hostPlayer);
-
-        return room;
+        room.setCreatedAt(Instant.now());
+        room.setGameMode("CLASSIC");
+        room.setIsPublic(true);
+        
+        Room saved = roomRepository.save(room);
+        System.out.println("✅ Room persisted to DB: " + name);
+        
+        return saved;
     }
 
+    /**
+     * Delete a room (only deletes metadata - session is separate)
+     */
     @Transactional
-    public void joinRoom(UUID roomId, UUID playerId) {
-        Room room = roomRepository.findById(roomId)
-                .orElseThrow(() -> new RuntimeException("Room not found"));
-
-        if (room.getCurrentPlayers() >= room.getMaxPlayers()) {
-            throw new RuntimeException("Room is full");
-        }
-
-        if (room.getStatus() != RoomStatus.WAITING) {
-            throw new RuntimeException("Game already started");
-        }
-
-        // Check if player already in room - MAKE IT IDEMPOTENT
-        Optional<PlayerRoom> existingPlayerRoom = playerRoomRepository.findByPlayerIdAndRoomId(playerId, roomId);
-        if (existingPlayerRoom.isPresent()) {
-            // Player already in room - this is OK, just return without error
-            System.out.println("⚠️ Player " + playerId + " already in room " + roomId + ", skipping add");
-            return; // CHANGED: Don't throw exception, just return
-        }
-
-        PlayerRoom playerRoom = new PlayerRoom();
-        playerRoom.setPlayerId(playerId);
-        playerRoom.setRoomId(roomId);
-        playerRoom.setIsHost(false);
-        playerRoomRepository.save(playerRoom);
-
-        room.setCurrentPlayers(room.getCurrentPlayers() + 1);
-        roomRepository.save(room);
-
-        System.out.println("✅ Player " + playerId + " added to room " + roomId);
+    public void deleteRoom(UUID roomId) {
+        roomRepository.deleteById(roomId);
+        System.out.println("🗑️ Room deleted from DB: " + roomId);
     }
 
+    /**
+     * Update room settings
+     */
     @Transactional
-    public void leaveRoom(UUID roomId, UUID playerId) {
+    public Room updateRoomSettings(UUID roomId, Integer maxPlayers, String gameMode) {
         Room room = roomRepository.findById(roomId)
-                .orElseThrow(() -> new RuntimeException("Room not found"));
-
-        PlayerRoom playerRoom = playerRoomRepository.findByPlayerIdAndRoomId(playerId, roomId)
-                .orElseThrow(() -> new RuntimeException("Not in room"));
-
-        playerRoomRepository.delete(playerRoom);
-
-        room.setCurrentPlayers(room.getCurrentPlayers() - 1);
-
-        // If host left and room is not empty, assign new host
-        if (playerRoom.getIsHost() && room.getCurrentPlayers() > 0) {
-            List<PlayerRoom> remainingPlayers = playerRoomRepository.findByRoomId(roomId);
-            if (!remainingPlayers.isEmpty()) {
-                PlayerRoom newHost = remainingPlayers.get(0);
-                newHost.setIsHost(true);
-                playerRoomRepository.save(newHost);
-                room.setHostId(newHost.getPlayerId());
-            }
+            .orElseThrow(() -> new IllegalArgumentException("Room not found"));
+        
+        if (maxPlayers != null) {
+            room.setMaxPlayers(maxPlayers);
         }
-
-        // Delete room if empty
-        if (room.getCurrentPlayers() == 0) {
-            roomRepository.delete(room);
-        } else {
-            roomRepository.save(room);
+        if (gameMode != null) {
+            room.setGameMode(gameMode);
         }
+        
+        return roomRepository.save(room);
     }
 
-    // CHANGED: Return PlayerDTO list with usernames
-    public List<PlayerDTO> getRoomPlayers(UUID roomId) {
-        List<PlayerRoom> playerRooms = playerRoomRepository.findByRoomId(roomId);
-        List<PlayerDTO> players = new ArrayList<>();
-
-        for (PlayerRoom pr : playerRooms) {
-            User user = userRepository.findById(pr.getPlayerId()).orElse(null);
-            PlayerDTO dto = new PlayerDTO();
-            dto.setPlayerId(pr.getPlayerId().toString());
-            dto.setUsername(user != null ? user.getUsername() : "Unknown");
-            dto.setIsHost(pr.getIsHost());
-            dto.setRole(pr.getRole() != null ? pr.getRole().toString() : null);
-            dto.setStatus(pr.getStatus() != null ? pr.getStatus().toString() : "ALIVE");
-            players.add(dto);
-        }
-
-        return players;
-    }
+    // ❌ REMOVED: joinRoom() - now handled by WebSocket + SessionManager
+    // ❌ REMOVED: leaveRoom() - now handled by WebSocket + SessionManager
+    // ❌ REMOVED: getRoomPlayers() - now query SessionManager
 }

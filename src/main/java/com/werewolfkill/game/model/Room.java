@@ -14,24 +14,21 @@ import com.werewolfkill.game.model.enums.RoomStatus;
 @NoArgsConstructor
 @AllArgsConstructor
 public class Room {
-    
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
     
-    @Column(nullable = false)
+    @Column(nullable = false, unique = true)
     private String name;
     
     @Column(nullable = false)
-    private UUID hostId;
+    private UUID createdBy;  // Original creator (for audit)
     
     @Column(nullable = false)
     private Integer maxPlayers = 8;
     
     @Column(nullable = false)
-    private Integer currentPlayers = 0;
+    private Instant createdAt;
     
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
-    private RoomStatus status = RoomStatus.WAITING;
+    private String gameMode = "CLASSIC";
 }
