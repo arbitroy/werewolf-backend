@@ -20,16 +20,17 @@ public class WebSocketService {
     private SessionManager sessionManager;
 
     public void sendGameUpdate(UUID roomId, GameUpdateMessage message) {
-        messagingTemplate.convertAndSend("/topic/game/" + roomId.toString(), message);
+        String destination = "/topic/game/" + roomId.toString();
+        messagingTemplate.convertAndSend(destination, (Object) message);  // ✅ FIXED: Cast to Object
     }
 
     public void sendGameUpdate(UUID roomId, Object message) {
         String destination = "/topic/game/" + roomId.toString();
-        messagingTemplate.convertAndSend(destination, message);
+        messagingTemplate.convertAndSend(destination, (Object) message);  // ✅ FIXED: Cast to Object
     }
 
     public void sendPrivateMessage(String userId, String destination, Object message) {
-        messagingTemplate.convertAndSendToUser(userId, destination, message);
+        messagingTemplate.convertAndSendToUser(userId, destination, (Object) message);  // ✅ FIXED: Cast to Object
     }
 
     // ✅ Use SessionManager instead of querying database
@@ -53,7 +54,7 @@ public class WebSocketService {
         message.put("timestamp", System.currentTimeMillis());
         
         String destination = "/topic/room/" + roomId.toString();
-        messagingTemplate.convertAndSend(destination, message);
+        messagingTemplate.convertAndSend(destination, (Object) message);  // ✅ FIXED: Cast to Object
     }
 
     public void broadcastPlayerLeft(UUID roomId, UUID playerId) {
@@ -62,6 +63,6 @@ public class WebSocketService {
         message.put("playerId", playerId.toString());
         
         String destination = "/topic/room/" + roomId.toString();
-        messagingTemplate.convertAndSend(destination, message);
+        messagingTemplate.convertAndSend(destination, (Object) message);  // ✅ FIXED: Cast to Object
     }
 }

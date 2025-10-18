@@ -1,10 +1,7 @@
 package com.werewolfkill.game.websocket;
 
 import com.werewolfkill.game.model.Room;
-import com.werewolfkill.game.model.User;
 import com.werewolfkill.game.repository.RoomRepository;
-import com.werewolfkill.game.repository.UserRepository;
-import com.werewolfkill.game.service.WebSocketService;
 import com.werewolfkill.game.session.SessionManager;
 import com.werewolfkill.game.session.SessionManager.PlayerInfo;
 import com.werewolfkill.game.session.SessionManager.RoomSession;
@@ -19,7 +16,6 @@ import org.springframework.stereotype.Controller;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Controller
 public class GameWebSocketHandler {
@@ -31,13 +27,7 @@ public class GameWebSocketHandler {
     private RoomRepository roomRepository;
 
     @Autowired
-    private UserRepository userRepository;
-
-    @Autowired
     private SimpMessagingTemplate messagingTemplate;
-
-    @Autowired
-    private WebSocketService webSocketService;
 
     @MessageMapping("/room/{roomId}/join")
     public void handleJoinRoom(
@@ -79,7 +69,7 @@ public class GameWebSocketHandler {
         headerAccessor.getSessionAttributes().put("username", username);
 
         // Add player to session
-        PlayerInfo player = sessionManager.addPlayer(roomUuid, webSocketSessionId, playerId, username);
+        sessionManager.addPlayer(roomUuid, webSocketSessionId, playerId, username);
 
         // Broadcast updated state
         broadcastRoomState(roomUuid);
@@ -138,7 +128,7 @@ public class GameWebSocketHandler {
                 playerData.put("role", player.getRole() != null ? player.getRole().toString() : null);
                 return playerData;
             })
-            .collect(Collectors.toList());
+            .toList();
 
         PlayerInfo host = session.getPlayers().get(session.getHostSessionId());
 
@@ -153,13 +143,13 @@ public class GameWebSocketHandler {
         message.put("timestamp", System.currentTimeMillis());
 
         String destination = "/topic/room/" + roomId.toString();
-        messagingTemplate.convertAndSend(destination, message);
+        messagingTemplate.convertAndSend(destination, (Object) message);  // ✅ FIXED: Cast to Object
     }
 
     private void sendError(String sessionId, String errorMessage) {
         Map<String, Object> error = new HashMap<>();
         error.put("type", "ERROR");
         error.put("message", errorMessage);
-        messagingTemplate.convertAndSendToUser(sessionId, "/queue/errors", error);
+        messagingTemplate.convertAndSendToUser(sessionId, "/queue/errors", (Object) error);  // ✅ FIXED: Cast to Object
     }
 }

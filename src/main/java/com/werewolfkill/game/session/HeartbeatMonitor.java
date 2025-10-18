@@ -1,17 +1,16 @@
-package main.java.com.werewolfkill.game.session;
+package com.werewolfkill.game.session;  // ✅ FIXED: Removed "main.java."
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import main.java.com.werewolfkill.game.session.SessionManager.PlayerInfo;
-import main.java.com.werewolfkill.game.session.SessionManager.RoomSession;
+import com.werewolfkill.game.session.SessionManager.PlayerInfo;  // ✅ FIXED: Correct import
+import com.werewolfkill.game.session.SessionManager.RoomSession;  // ✅ FIXED: Correct import
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Component
 public class HeartbeatMonitor {
@@ -68,7 +67,7 @@ public class HeartbeatMonitor {
                             player.getRole() != null ? player.getRole().toString() : null);
                     return playerData;
                 })
-                .collect(Collectors.toList());
+                .toList();
 
         // Get host info
         PlayerInfo host = session.getPlayers().get(session.getHostSessionId());
@@ -86,7 +85,7 @@ public class HeartbeatMonitor {
 
         // Broadcast to topic
         String destination = "/topic/room/" + roomId.toString();
-        messagingTemplate.convertAndSend(destination, message);
+        messagingTemplate.convertAndSend(destination, (Object) message);  // ✅ FIXED: Cast to Object
 
         System.out.println("📢 Broadcasted ROOM_STATE_UPDATE: " + playerList.size() + " players");
     }
