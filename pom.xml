@@ -6,7 +6,7 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>4.0.0-M3</version>
+		<version>3.4.1</version> <!-- ✅ STABLE VERSION -->
 		<relativePath /> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.werewolfkill</groupId>
@@ -14,19 +14,6 @@
 	<version>0.0.1-SNAPSHOT</version>
 	<name>werewolf-game</name>
 	<description>Demo project for Spring Boot</description>
-	<url />
-	<licenses>
-		<license />
-	</licenses>
-	<developers>
-		<developer />
-	</developers>
-	<scm>
-		<connection />
-		<developerConnection />
-		<tag />
-		<url />
-	</scm>
 	<properties>
 		<java.version>21</java.version>
 	</properties>
@@ -47,7 +34,6 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-websocket</artifactId>
 		</dependency>
-
 
 		<!-- JWT Support -->
 		<dependency>
@@ -93,14 +79,17 @@
 			<scope>test</scope>
 		</dependency>
 
+		<!-- ✅ Flyway with explicit stable version -->
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-core</artifactId>
+			<version>10.22.1</version>
 		</dependency>
 
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-database-postgresql</artifactId>
+			<version>10.22.1</version>
 			<scope>runtime</scope>
 		</dependency>
 	</dependencies>
