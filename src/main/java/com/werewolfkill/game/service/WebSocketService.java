@@ -1,11 +1,10 @@
 package com.werewolfkill.game.service;
 
 import com.werewolfkill.game.websocket.dto.GameUpdateMessage;
+import com.werewolfkill.game.session.SessionManager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
-import com.werewolfkill.game.model.PlayerRoom;
-import com.werewolfkill.game.repository.PlayerRoomRepository;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -18,40 +17,33 @@ public class WebSocketService {
     private SimpMessagingTemplate messagingTemplate;
     
     @Autowired
-    private PlayerRoomRepository playerRoomRepository;
+    private SessionManager sessionManager;
 
-    /**
-     * Send game update to all players in a room
-     */
     public void sendGameUpdate(UUID roomId, GameUpdateMessage message) {
         messagingTemplate.convertAndSend("/topic/game/" + roomId.toString(), message);
     }
 
-    /**
-     * ✅ FIXED: Overload for generic objects
-     */
     public void sendGameUpdate(UUID roomId, Object message) {
         String destination = "/topic/game/" + roomId.toString();
         messagingTemplate.convertAndSend(destination, message);
     }
 
-    /**
-     * Send private message to specific user
-     */
     public void sendPrivateMessage(String userId, String destination, Object message) {
         messagingTemplate.convertAndSendToUser(userId, destination, message);
     }
 
-    /**
-     * Broadcast player joined event with isHost flag
-     */
+    // ✅ Use SessionManager instead of querying database
     public void broadcastPlayerJoined(UUID roomId, UUID playerId, String username) {
-        // Query database to get isHost status
-        PlayerRoom playerRoom = playerRoomRepository
-                .findByPlayerIdAndRoomId(playerId, roomId)
-                .orElse(null);
+        SessionManager.RoomSession session = sessionManager.getSession(roomId).orElse(null);
+        if (session == null) return;
         
-        boolean isHost = playerRoom != null && playerRoom.getIsHost();
+        SessionManager.PlayerInfo player = session.getPlayers().values().stream()
+            .filter(p -> p.getPlayerId().equals(playerId))
+            .findFirst()
+            .orElse(null);
+        
+        boolean isHost = player != null && 
+            player.getWebSocketSessionId().equals(session.getHostSessionId());
         
         Map<String, Object> message = new HashMap<>();
         message.put("type", "PLAYER_JOINED");
@@ -60,36 +52,16 @@ public class WebSocketService {
         message.put("isHost", isHost);
         message.put("timestamp", System.currentTimeMillis());
         
-        System.out.println("📢 Broadcasting PLAYER_JOINED: " + username + ", isHost=" + isHost);
-        
-        // ✅ FIXED: Explicit destination parameter to avoid ambiguity
         String destination = "/topic/room/" + roomId.toString();
-        messagingTemplate.convertAndSend(destination, (Object) message);
+        messagingTemplate.convertAndSend(destination, message);
     }
 
-    /**
-     * Broadcast player left event
-     */
     public void broadcastPlayerLeft(UUID roomId, UUID playerId) {
         Map<String, Object> message = new HashMap<>();
         message.put("type", "PLAYER_LEFT");
         message.put("playerId", playerId.toString());
-        message.put("timestamp", System.currentTimeMillis());
         
         String destination = "/topic/room/" + roomId.toString();
-        messagingTemplate.convertAndSend(destination, (Object) message);
-    }
-
-    /**
-     * Broadcast game started event
-     */
-    public void broadcastGameStarted(UUID roomId) {
-        Map<String, Object> message = new HashMap<>();
-        message.put("type", "GAME_STARTED");
-        message.put("roomId", roomId.toString());
-        message.put("timestamp", System.currentTimeMillis());
-        
-        String destination = "/topic/room/" + roomId.toString();
-        messagingTemplate.convertAndSend(destination, (Object) message);
+        messagingTemplate.convertAndSend(destination, message);
     }
 }

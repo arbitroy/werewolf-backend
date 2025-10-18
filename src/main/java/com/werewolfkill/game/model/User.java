@@ -21,7 +21,5 @@ public class User {
     private String username;
     
     @Column(nullable = false)
-    private String password; // BCrypt hashed
-    
-    private String avatar;
+    private String password;
 }

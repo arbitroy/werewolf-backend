@@ -4,9 +4,8 @@ import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import java.time.Instant;
 import java.util.UUID;
-
-import com.werewolfkill.game.model.enums.RoomStatus;
 
 @Entity
 @Table(name = "rooms")
@@ -14,6 +13,7 @@ import com.werewolfkill.game.model.enums.RoomStatus;
 @NoArgsConstructor
 @AllArgsConstructor
 public class Room {
+    
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
@@ -22,13 +22,14 @@ public class Room {
     private String name;
     
     @Column(nullable = false)
-    private UUID createdBy;  // Original creator (for audit)
+    private UUID createdBy;  // Who created the room
     
     @Column(nullable = false)
     private Integer maxPlayers = 8;
     
     @Column(nullable = false)
-    private Instant createdAt;
+    private Instant createdAt = Instant.now();
     
     private String gameMode = "CLASSIC";
+    private Boolean isPublic = true;
 }
