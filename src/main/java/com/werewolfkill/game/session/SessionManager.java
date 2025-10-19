@@ -1,23 +1,32 @@
-package com.werewolfkill.game.session;  // ✅ FIXED: Removed "main.java."
+package com.werewolfkill.game.session;
 
-import com.werewolfkill.game.model.enums.Role;
-import com.werewolfkill.game.model.enums.PlayerStatus;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
+
+import com.werewolfkill.game.model.enums.PlayerStatus;
+import com.werewolfkill.game.model.enums.Role;
 
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+
 @Component
 public class SessionManager {
     
-    private final ConcurrentHashMap<UUID, RoomSession> activeSessions = new ConcurrentHashMap<>();
+    private final Map<UUID, RoomSession> activeSessions = new ConcurrentHashMap<>();
+    private final SimpMessagingTemplate messagingTemplate;
     
-    // ✅ Inner class with MANUAL getters/setters
+    // ✅ CRITICAL FIX: Inject SimpMessagingTemplate for broadcasting
+    public SessionManager(SimpMessagingTemplate messagingTemplate) {
+        this.messagingTemplate = messagingTemplate;
+    }
+    
+    // Inner classes
     public static class RoomSession {
         private UUID roomId;
         private String roomName;
-        private ConcurrentHashMap<String, PlayerInfo> players;
+        private Map<String, PlayerInfo> players;
         private String hostSessionId;
         private Instant sessionStartTime;
         private Instant lastActivity;
@@ -28,26 +37,24 @@ public class SessionManager {
             this.currentPhase = "WAITING";
         }
         
-        // Getters
+        // Getters and setters
         public UUID getRoomId() { return roomId; }
         public String getRoomName() { return roomName; }
-        public ConcurrentHashMap<String, PlayerInfo> getPlayers() { return players; }
+        public Map<String, PlayerInfo> getPlayers() { return players; }
         public String getHostSessionId() { return hostSessionId; }
         public Instant getSessionStartTime() { return sessionStartTime; }
         public Instant getLastActivity() { return lastActivity; }
         public String getCurrentPhase() { return currentPhase; }
         
-        // Setters
         public void setRoomId(UUID roomId) { this.roomId = roomId; }
         public void setRoomName(String roomName) { this.roomName = roomName; }
-        public void setPlayers(ConcurrentHashMap<String, PlayerInfo> players) { this.players = players; }
+        public void setPlayers(Map<String, PlayerInfo> players) { this.players = players; }
         public void setHostSessionId(String hostSessionId) { this.hostSessionId = hostSessionId; }
         public void setSessionStartTime(Instant sessionStartTime) { this.sessionStartTime = sessionStartTime; }
         public void setLastActivity(Instant lastActivity) { this.lastActivity = lastActivity; }
         public void setCurrentPhase(String currentPhase) { this.currentPhase = currentPhase; }
     }
     
-    // ✅ Inner class with MANUAL getters/setters
     public static class PlayerInfo {
         private String webSocketSessionId;
         private UUID playerId;
@@ -112,12 +119,15 @@ public class SessionManager {
             throw new IllegalStateException("Session does not exist for room: " + roomId);
         }
         
+        // Check if player already exists (reconnection)
         PlayerInfo existing = session.getPlayers().get(webSocketSessionId);
         if (existing != null) {
             existing.setLastHeartbeat(Instant.now());
+            System.out.println("🔄 Player reconnected: " + username);
             return existing;
         }
         
+        // Create new player
         PlayerInfo player = new PlayerInfo(
             webSocketSessionId,
             playerId,
@@ -131,12 +141,15 @@ public class SessionManager {
         session.getPlayers().put(webSocketSessionId, player);
         session.setLastActivity(Instant.now());
         
+        // ✅ CRITICAL: Assign host if this is the first player
         if (session.getHostSessionId() == null) {
             session.setHostSessionId(webSocketSessionId);
-            System.out.println("👑 " + username + " is now the host");
+            System.out.println("👑 First player " + username + " assigned as host");
         }
         
-        System.out.println("✅ Added player: " + username + " to room " + roomId);
+        System.out.println("✅ Player " + username + " added to room " + roomId + 
+                         " (Total: " + session.getPlayers().size() + ")");
+        
         return player;
     }
     
@@ -147,31 +160,69 @@ public class SessionManager {
         PlayerInfo removed = session.getPlayers().remove(webSocketSessionId);
         if (removed == null) return;
         
-        System.out.println("❌ Removed player: " + removed.getUsername());
+        System.out.println("👋 Player " + removed.getUsername() + " removed from room " + roomId);
         
-        // Transfer host if needed
-        if (webSocketSessionId.equals(session.getHostSessionId()) && !session.getPlayers().isEmpty()) {
-            String newHost = session.getPlayers().keys().nextElement();
-            session.setHostSessionId(newHost);
-            PlayerInfo newHostPlayer = session.getPlayers().get(newHost);
-            System.out.println("👑 New host: " + newHostPlayer.getUsername());
+        // ✅ CRITICAL FIX: Check if removed player was host and reassign
+        if (webSocketSessionId.equals(session.getHostSessionId())) {
+            System.out.println("🔄 Host disconnected, reassigning...");
+            reassignHost(session, roomId);
         }
         
         // Clean up empty sessions
         if (session.getPlayers().isEmpty()) {
             activeSessions.remove(roomId);
-            System.out.println("🧹 Cleaned up empty session for room: " + roomId);
+            System.out.println("🧹 Room " + roomId + " session destroyed (empty)");
         }
+    }
+    
+    // ✅ CRITICAL FIX: Broadcast HOST_CHANGED event
+    private void reassignHost(RoomSession session, UUID roomId) {
+        if (session.getPlayers().isEmpty()) {
+            session.setHostSessionId(null);
+            System.out.println("⚠️ No players left to assign as host");
+            return;
+        }
+        
+        // Find the player who joined earliest (first to join becomes host)
+        PlayerInfo newHost = session.getPlayers().values().stream()
+            .min(Comparator.comparing(PlayerInfo::getJoinedAt))
+            .orElse(null);
+        
+        if (newHost != null) {
+            String oldHostId = session.getHostSessionId();
+            session.setHostSessionId(newHost.getWebSocketSessionId());
+            
+            System.out.println("👑 New host assigned: " + newHost.getUsername() + 
+                             " (joined at: " + newHost.getJoinedAt() + ")");
+            
+            // ✅ BROADCAST HOST_CHANGED event to all clients
+            broadcastHostChanged(roomId, newHost);
+        }
+    }
+    
+    // ✅ NEW METHOD: Broadcast host change to all room participants
+    private void broadcastHostChanged(UUID roomId, PlayerInfo newHost) {
+        Map<String, Object> message = new HashMap<>();
+        message.put("type", "HOST_CHANGED");
+        message.put("roomId", roomId.toString());
+        message.put("newHostId", newHost.getPlayerId().toString());
+        message.put("newHostUsername", newHost.getUsername());
+        message.put("timestamp", System.currentTimeMillis());
+        
+        String destination = "/topic/room/" + roomId.toString();
+        messagingTemplate.convertAndSend(destination, message);
+        
+        System.out.println("📢 Broadcasted HOST_CHANGED: " + newHost.getUsername() + " is now host");
     }
     
     public void updateHeartbeat(UUID roomId, String webSocketSessionId) {
         RoomSession session = activeSessions.get(roomId);
-        if (session == null) return;
-        
-        PlayerInfo player = session.getPlayers().get(webSocketSessionId);
-        if (player != null) {
-            player.setLastHeartbeat(Instant.now());
-            session.setLastActivity(Instant.now());
+        if (session != null) {
+            PlayerInfo player = session.getPlayers().get(webSocketSessionId);
+            if (player != null) {
+                player.setLastHeartbeat(Instant.now());
+                session.setLastActivity(Instant.now());
+            }
         }
     }
     
@@ -181,15 +232,12 @@ public class SessionManager {
             .orElse(0);
     }
     
-    public List<PlayerInfo> getAlivePlayers(UUID roomId) {
-        return getSession(roomId)
-            .map(session -> session.getPlayers().values().stream()
-                .filter(p -> p.getStatus() == PlayerStatus.ALIVE)
-                .toList())
-            .orElse(Collections.emptyList());
-    }
-    
     public Map<UUID, RoomSession> getAllSessions() {
         return new HashMap<>(activeSessions);
+    }
+    
+    public void destroySession(UUID roomId) {
+        activeSessions.remove(roomId);
+        System.out.println("🧹 Room " + roomId + " session destroyed");
     }
 }
