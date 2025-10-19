@@ -69,11 +69,15 @@ public class RoomService {
 
     @Transactional
     public void leaveRoom(UUID roomId, UUID playerId) {
-        // Validation only - actual leave happens via WebSocket
+        // Verify room exists
         Room room = roomRepository.findById(roomId)
                 .orElseThrow(() -> new RuntimeException("Room not found"));
 
-        System.out.println("✅ Player " + playerId + " leaving room " + roomId);
+        // ✅ Optional: Clean up any database records if needed
+        // For now, this is just validation since WebSocket handles actual leaving
+        System.out.println("📝 Leave room REST API called for player " + playerId);
+
+        // Note: Actual player removal happens via WebSocket in GameWebSocketHandler
     }
 
     // ✅ Get players from SessionManager instead of database
