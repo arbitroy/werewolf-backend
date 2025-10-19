@@ -24,7 +24,7 @@ public class RoomService {
 
     @Autowired
     private UserRepository userRepository;
-    
+
     @Autowired
     private SessionManager sessionManager;
 
@@ -41,8 +41,14 @@ public class RoomService {
         room.setCreatedAt(Instant.now());
         room.setGameMode("CLASSIC");
         room.setIsPublic(true);
-        
-        return roomRepository.save(room);
+
+        Room savedRoom = roomRepository.save(room);
+
+        // ✅ FIX: Pre-create session when room is created
+        sessionManager.getOrCreateSession(savedRoom.getId(), savedRoom.getName());
+        System.out.println("✅ Pre-created session for room: " + savedRoom.getId());
+
+        return savedRoom;
     }
 
     // ✅ joinRoom/leaveRoom are now handled by WebSocket + SessionManager
@@ -51,13 +57,13 @@ public class RoomService {
     public void joinRoom(UUID roomId, UUID playerId) {
         Room room = roomRepository.findById(roomId)
                 .orElseThrow(() -> new RuntimeException("Room not found"));
-        
+
         // Validation only - actual join happens via WebSocket
         int currentPlayers = sessionManager.getPlayerCount(roomId);
         if (currentPlayers >= room.getMaxPlayers()) {
             throw new RuntimeException("Room is full");
         }
-        
+
         System.out.println("✅ Player " + playerId + " validated for room " + roomId);
     }
 
@@ -66,25 +72,25 @@ public class RoomService {
         // Validation only - actual leave happens via WebSocket
         Room room = roomRepository.findById(roomId)
                 .orElseThrow(() -> new RuntimeException("Room not found"));
-        
+
         System.out.println("✅ Player " + playerId + " leaving room " + roomId);
     }
 
     // ✅ Get players from SessionManager instead of database
     public List<PlayerDTO> getRoomPlayers(UUID roomId) {
         return sessionManager.getSession(roomId)
-            .map(session -> session.getPlayers().values().stream()
-                .map(player -> {
-                    User user = userRepository.findById(player.getPlayerId()).orElse(null);
-                    PlayerDTO dto = new PlayerDTO();
-                    dto.setPlayerId(player.getPlayerId().toString());
-                    dto.setUsername(user != null ? user.getUsername() : "Unknown");
-                    dto.setIsHost(player.getWebSocketSessionId().equals(session.getHostSessionId()));
-                    dto.setRole(player.getRole() != null ? player.getRole().toString() : null);
-                    dto.setStatus(player.getStatus().toString());
-                    return dto;
-                })
-                .collect(Collectors.toList()))
-            .orElse(new ArrayList<>());
+                .map(session -> session.getPlayers().values().stream()
+                        .map(player -> {
+                            User user = userRepository.findById(player.getPlayerId()).orElse(null);
+                            PlayerDTO dto = new PlayerDTO();
+                            dto.setPlayerId(player.getPlayerId().toString());
+                            dto.setUsername(user != null ? user.getUsername() : "Unknown");
+                            dto.setIsHost(player.getWebSocketSessionId().equals(session.getHostSessionId()));
+                            dto.setRole(player.getRole() != null ? player.getRole().toString() : null);
+                            dto.setStatus(player.getStatus().toString());
+                            return dto;
+                        })
+                        .collect(Collectors.toList()))
+                .orElse(new ArrayList<>());
     }
 }

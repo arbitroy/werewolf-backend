@@ -20,7 +20,7 @@ public class GameService {
 
     @Autowired
     private WebSocketService webSocketService;
-    
+
     @Autowired
     private SessionManager sessionManager;
 
@@ -34,31 +34,37 @@ public class GameService {
     @Transactional
     public void startGame(UUID roomId) {
         System.out.println("🎮 Starting game for room: " + roomId);
-        
+
         // Verify room exists in database
         Room room = roomRepository.findById(roomId)
-                .orElseThrow(() -> new RuntimeException("Room not found"));
+                .orElseThrow(() -> new RuntimeException("Room not found in database"));
 
-        // Get session from SessionManager
+        // ✅ FIX: Better error handling for missing session
         RoomSession session = sessionManager.getSession(roomId)
-                .orElseThrow(() -> new RuntimeException("No active session for this room"));
+                .orElseThrow(() -> {
+                    int playerCount = sessionManager.getPlayerCount(roomId);
+                    String errorMsg = String.format(
+                            "No active WebSocket session for room %s. " +
+                                    "Room exists in database but no players have connected via WebSocket yet. " +
+                                    "Current player count: %d. Please ensure all players have joined via WebSocket.",
+                            roomId, playerCount);
+                    System.out.println("❌ " + errorMsg);
+                    return new RuntimeException(errorMsg);
+                });
 
         // Check minimum player count
         int playerCount = session.getPlayers().size();
         System.out.println("   Player count: " + playerCount);
-        
+
         if (playerCount < 3) {
             throw new RuntimeException("Need at least 3 players to start (currently: " + playerCount + ")");
         }
 
-        // ✅ Assign roles to players in the session
+        // Rest of the method remains the same...
         assignRoles(roomId, session);
-
-        // ✅ Update session phase
         session.setCurrentPhase("NIGHT");
-        System.out.println("   Game phase: NIGHT");
 
-        // ✅ Broadcast game start to all players
+        // Broadcast game start
         Map<String, Object> message = new HashMap<>();
         message.put("type", "GAME_STARTED");
         message.put("roomId", roomId.toString());
@@ -67,10 +73,7 @@ public class GameService {
         message.put("playerCount", playerCount);
         message.put("timestamp", System.currentTimeMillis());
 
-        // Send to game topic
         webSocketService.sendGameUpdate(roomId, message);
-
-        // Also broadcast updated room state with new phase
         broadcastRoomState(roomId, session);
 
         System.out.println("✅ Game started successfully for room: " + roomId);
@@ -86,7 +89,7 @@ public class GameService {
     private void assignRoles(UUID roomId, RoomSession session) {
         List<PlayerInfo> players = new ArrayList<>(session.getPlayers().values());
         int playerCount = players.size();
-        
+
         System.out.println("🎭 Assigning roles to " + playerCount + " players");
 
         // Shuffle players for random role assignment
@@ -94,27 +97,27 @@ public class GameService {
 
         // Determine role distribution based on player count
         int werewolfCount = (playerCount >= 5) ? 2 : 1;
-        
+
         List<Role> rolesToAssign = new ArrayList<>();
-        
+
         // Add werewolves
         for (int i = 0; i < werewolfCount; i++) {
             rolesToAssign.add(Role.WEREWOLF);
         }
-        
+
         // Add seer (always present)
         rolesToAssign.add(Role.SEER);
-        
+
         // Add doctor for 5+ players
         if (playerCount >= 5) {
             rolesToAssign.add(Role.DOCTOR);
         }
-        
+
         // Add hunter for 7+ players
         if (playerCount >= 7) {
             rolesToAssign.add(Role.HUNTER);
         }
-        
+
         // Fill remaining with villagers
         while (rolesToAssign.size() < playerCount) {
             rolesToAssign.add(Role.VILLAGER);
@@ -125,13 +128,13 @@ public class GameService {
             PlayerInfo player = players.get(i);
             Role role = rolesToAssign.get(i);
             player.setRole(role);
-            
+
             System.out.println("   👤 " + player.getUsername() + " → " + role);
-            
+
             // Send private role assignment to player
             sendRoleAssignment(roomId, player);
         }
-        
+
         System.out.println("✅ Role assignment complete");
     }
 
@@ -148,11 +151,10 @@ public class GameService {
 
         // Send private message to this player only
         webSocketService.sendPrivateMessage(
-            player.getWebSocketSessionId(),
-            "/queue/role",
-            message
-        );
-        
+                player.getWebSocketSessionId(),
+                "/queue/role",
+                message);
+
         System.out.println("   📨 Sent role " + player.getRole() + " to " + player.getUsername());
     }
 
@@ -175,16 +177,16 @@ public class GameService {
      */
     private void broadcastRoomState(UUID roomId, RoomSession session) {
         List<Map<String, Object>> playerList = session.getPlayers().values().stream()
-            .map(player -> {
-                Map<String, Object> playerData = new HashMap<>();
-                playerData.put("playerId", player.getPlayerId().toString());
-                playerData.put("username", player.getUsername());
-                playerData.put("isHost", player.getWebSocketSessionId().equals(session.getHostSessionId()));
-                playerData.put("status", player.getStatus().toString());
-                // Don't send role in public broadcast!
-                return playerData;
-            })
-            .toList();
+                .map(player -> {
+                    Map<String, Object> playerData = new HashMap<>();
+                    playerData.put("playerId", player.getPlayerId().toString());
+                    playerData.put("username", player.getUsername());
+                    playerData.put("isHost", player.getWebSocketSessionId().equals(session.getHostSessionId()));
+                    playerData.put("status", player.getStatus().toString());
+                    // Don't send role in public broadcast!
+                    return playerData;
+                })
+                .toList();
 
         PlayerInfo host = session.getPlayers().get(session.getHostSessionId());
 
@@ -211,13 +213,13 @@ public class GameService {
 
         // TODO: Implement voting logic
         System.out.println("🗳️ Vote: " + voterId + " → " + targetId);
-        
+
         // Broadcast vote to all players
         Map<String, Object> message = new HashMap<>();
         message.put("type", "VOTE_CAST");
         message.put("voterId", voterId.toString());
         message.put("targetId", targetId.toString());
-        
+
         webSocketService.sendGameUpdate(roomId, message);
     }
 
@@ -230,12 +232,12 @@ public class GameService {
 
         // TODO: Implement night action logic
         System.out.println("🌙 Night action: " + action + " by " + actorId + " on " + targetId);
-        
+
         // Process action and broadcast result
         Map<String, Object> message = new HashMap<>();
         message.put("type", "NIGHT_ACTION_RESULT");
         message.put("action", action);
-        
+
         webSocketService.sendGameUpdate(roomId, message);
     }
 }
