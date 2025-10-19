@@ -58,6 +58,14 @@ public class GameWebSocketHandler {
         // Get or create session
         RoomSession session = sessionManager.getOrCreateSession(roomUuid, room.getName());
 
+        // ✅ CRITICAL FIX: Check if game is in progress
+        String currentPhase = session.getCurrentPhase();
+        if (currentPhase != null && !currentPhase.equals("WAITING")) {
+            System.out.println("❌ Player " + username + " tried to join active game in room " + roomId);
+            sendError(webSocketSessionId, "Cannot join - game is already in progress");
+            return;
+        }
+
         // Check max players
         if (session.getPlayers().size() >= room.getMaxPlayers()) {
             sendError(webSocketSessionId, "Room is full");

@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -58,10 +59,24 @@ public class RoomService {
         Room room = roomRepository.findById(roomId)
                 .orElseThrow(() -> new RuntimeException("Room not found"));
 
-        // Validation only - actual join happens via WebSocket
-        int currentPlayers = sessionManager.getPlayerCount(roomId);
-        if (currentPlayers >= room.getMaxPlayers()) {
-            throw new RuntimeException("Room is full");
+        // ✅ Check if game is already in progress
+        Optional<SessionManager.RoomSession> sessionOpt = sessionManager.getSession(roomId);
+        if (!sessionManager.canAcceptPlayers(roomId, room.getMaxPlayers())) {
+            throw new RuntimeException("Cannot join this room");
+        }
+        if (sessionOpt.isPresent()) {
+            SessionManager.RoomSession session = sessionOpt.get();
+
+            // ✅ CRITICAL: Block joins if game has started
+            String currentPhase = session.getCurrentPhase();
+            if (currentPhase != null && !currentPhase.equals("WAITING")) {
+                throw new RuntimeException("Cannot join - game is already in progress");
+            }
+
+            // Check max players
+            if (session.getPlayers().size() >= room.getMaxPlayers()) {
+                throw new RuntimeException("Room is full");
+            }
         }
 
         System.out.println("✅ Player " + playerId + " validated for room " + roomId);
