@@ -30,6 +30,15 @@ public class SessionManager {
         private Instant sessionStartTime;
         private Instant lastActivity;
         private String currentPhase;
+        private int dayNumber = 0;
+        private Map<UUID, UUID> nightActions = new ConcurrentHashMap<>(); // actorId -> targetId
+        private Map<UUID, UUID> dayVotes = new ConcurrentHashMap<>(); // voterId -> targetId
+        private UUID doctorProtectionTarget = null;
+        private UUID werewolfKillTarget = null;
+        private UUID seerCheckTarget = null;
+        private Set<UUID> playersWhoActedTonight = ConcurrentHashMap.newKeySet();
+        private boolean allNightActionsComplete = false;
+        private boolean allVotesComplete = false;
 
         public RoomSession() {
             this.players = new ConcurrentHashMap<>();
@@ -91,6 +100,98 @@ public class SessionManager {
 
         public void setCurrentPhase(String currentPhase) {
             this.currentPhase = currentPhase;
+        }
+
+        public int getDayNumber() {
+            return dayNumber;
+        }
+
+        public Map<UUID, UUID> getNightActions() {
+            return nightActions;
+        }
+
+        public Map<UUID, UUID> getDayVotes() {
+            return dayVotes;
+        }
+
+        public UUID getDoctorProtectionTarget() {
+            return doctorProtectionTarget;
+        }
+
+        public UUID getWerewolfKillTarget() {
+            return werewolfKillTarget;
+        }
+
+        public UUID getSeerCheckTarget() {
+            return seerCheckTarget;
+        }
+
+        public Set<UUID> getPlayersWhoActedTonight() {
+            return playersWhoActedTonight;
+        }
+
+        public boolean isAllNightActionsComplete() {
+            return allNightActionsComplete;
+        }
+
+        public boolean isAllVotesComplete() {
+            return allVotesComplete;
+        }
+
+        // Setters
+        public void setDayNumber(int dayNumber) {
+            this.dayNumber = dayNumber;
+        }
+
+        public void setNightActions(Map<UUID, UUID> nightActions) {
+            this.nightActions = nightActions;
+        }
+
+        public void setDayVotes(Map<UUID, UUID> dayVotes) {
+            this.dayVotes = dayVotes;
+        }
+
+        public void setDoctorProtectionTarget(UUID doctorProtectionTarget) {
+            this.doctorProtectionTarget = doctorProtectionTarget;
+        }
+
+        public void setWerewolfKillTarget(UUID werewolfKillTarget) {
+            this.werewolfKillTarget = werewolfKillTarget;
+        }
+
+        public void setSeerCheckTarget(UUID seerCheckTarget) {
+            this.seerCheckTarget = seerCheckTarget;
+        }
+
+        public void setPlayersWhoActedTonight(Set<UUID> playersWhoActedTonight) {
+            this.playersWhoActedTonight = playersWhoActedTonight;
+        }
+
+        public void setAllNightActionsComplete(boolean allNightActionsComplete) {
+            this.allNightActionsComplete = allNightActionsComplete;
+        }
+
+        public void setAllVotesComplete(boolean allVotesComplete) {
+            this.allVotesComplete = allVotesComplete;
+        }
+
+        // Helper methods
+        public void clearNightActions() {
+            nightActions.clear();
+            doctorProtectionTarget = null;
+            werewolfKillTarget = null;
+            seerCheckTarget = null;
+            playersWhoActedTonight.clear();
+            allNightActionsComplete = false;
+        }
+
+        public void clearDayVotes() {
+            dayVotes.clear();
+            allVotesComplete = false;
+        }
+
+        public void incrementDay() {
+            this.dayNumber++;
         }
     }
 
