@@ -210,40 +210,445 @@ public class GameService {
     }
 
     /**
-     * Handle vote during day phase
+     * Handle vote during day/voting phase
+     * Players can change their vote until voting ends
      */
     public void handleVote(UUID roomId, UUID voterId, UUID targetId) {
+        System.out.println("🗳️ Vote: " + voterId + " → " + targetId);
+
         RoomSession session = sessionManager.getSession(roomId)
                 .orElseThrow(() -> new RuntimeException("Session not found"));
 
-        // TODO: Implement voting logic
-        System.out.println("🗳️ Vote: " + voterId + " → " + targetId);
+        // Validate we're in VOTING phase
+        if (!"VOTING".equals(session.getCurrentPhase())) {
+            throw new RuntimeException("Voting can only happen during VOTING phase");
+        }
 
-        // Broadcast vote to all players
+        // Find the voter
+        PlayerInfo voter = session.getPlayers().values().stream()
+                .filter(p -> p.getPlayerId().equals(voterId))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Voter not found"));
+
+        // Validate voter is alive
+        if (voter.getStatus() != PlayerStatus.ALIVE) {
+            throw new RuntimeException("Dead players cannot vote");
+        }
+
+        // Find target
+        PlayerInfo target = session.getPlayers().values().stream()
+                .filter(p -> p.getPlayerId().equals(targetId))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Target not found"));
+
+        // Validate target is alive
+        if (target.getStatus() != PlayerStatus.ALIVE) {
+            throw new RuntimeException("Cannot vote for dead players");
+        }
+
+        // Validate not voting for self
+        if (voterId.equals(targetId)) {
+            throw new RuntimeException("Cannot vote for yourself");
+        }
+
+        // Store/update vote
+        UUID previousVote = session.getDayVotes().put(voterId, targetId);
+
+        if (previousVote != null) {
+            System.out.println("🔄 " + voter.getUsername() + " changed vote from " +
+                    previousVote + " to " + targetId);
+        } else {
+            System.out.println("✅ " + voter.getUsername() + " voted for " + target.getUsername());
+        }
+
+        // Broadcast vote (publicly visible to all players)
         Map<String, Object> message = new HashMap<>();
         message.put("type", "VOTE_CAST");
         message.put("voterId", voterId.toString());
+        message.put("voterName", voter.getUsername());
         message.put("targetId", targetId.toString());
+        message.put("targetName", target.getUsername());
+        message.put("timestamp", System.currentTimeMillis());
 
         webSocketService.sendGameUpdate(roomId, message);
+
+        // Check if all players have voted
+        checkVotingComplete(roomId, session);
+    }
+
+    /**
+     * Check if all alive players have cast their vote
+     * If yes, automatically transition to NIGHT phase
+     */
+    private void checkVotingComplete(UUID roomId, RoomSession session) {
+        long alivePlayers = session.getPlayers().values().stream()
+                .filter(p -> p.getStatus() == PlayerStatus.ALIVE)
+                .count();
+
+        long playersWhoVoted = session.getDayVotes().size();
+
+        System.out.println("🗳️ Voting progress: " + playersWhoVoted + "/" + alivePlayers);
+
+        // Broadcast vote count update
+        Map<String, Object> voteCountMessage = new HashMap<>();
+        voteCountMessage.put("type", "VOTE_COUNT_UPDATE");
+        voteCountMessage.put("votesReceived", playersWhoVoted);
+        voteCountMessage.put("totalPlayers", alivePlayers);
+        voteCountMessage.put("votingComplete", playersWhoVoted == alivePlayers);
+        voteCountMessage.put("timestamp", System.currentTimeMillis());
+
+        webSocketService.sendGameUpdate(roomId, voteCountMessage);
+
+        // If all players voted, transition to night
+        if (playersWhoVoted == alivePlayers) {
+            System.out.println("✅ All players have voted - transitioning to night");
+            session.setAllVotesComplete(true);
+
+            // Small delay before transition (let players see final votes)
+            try {
+                Thread.sleep(2000); // 2 second delay
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+
+            // Auto-transition to night phase
+            transitionToNight(roomId);
+        }
+    }
+
+    /**
+     * Allow vote retraction (player removes their vote)
+     */
+    public void retractVote(UUID roomId, UUID voterId) {
+        System.out.println("🗳️ Vote retracted by: " + voterId);
+
+        RoomSession session = sessionManager.getSession(roomId)
+                .orElseThrow(() -> new RuntimeException("Session not found"));
+
+        // Validate we're in VOTING phase
+        if (!"VOTING".equals(session.getCurrentPhase())) {
+            throw new RuntimeException("Can only retract votes during VOTING phase");
+        }
+
+        // Find the voter
+        PlayerInfo voter = session.getPlayers().values().stream()
+                .filter(p -> p.getPlayerId().equals(voterId))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Voter not found"));
+
+        // Remove vote
+        UUID removedTarget = session.getDayVotes().remove(voterId);
+
+        if (removedTarget == null) {
+            throw new RuntimeException("No vote to retract");
+        }
+
+        System.out.println("✅ " + voter.getUsername() + " retracted their vote");
+
+        // Broadcast vote retraction
+        Map<String, Object> message = new HashMap<>();
+        message.put("type", "VOTE_RETRACTED");
+        message.put("voterId", voterId.toString());
+        message.put("voterName", voter.getUsername());
+        message.put("timestamp", System.currentTimeMillis());
+
+        webSocketService.sendGameUpdate(roomId, message);
+
+        // Update vote count
+        checkVotingComplete(roomId, session);
+    }
+
+    /**
+     * Get current vote counts (for display purposes)
+     */
+    public Map<String, Object> getVoteStatus(UUID roomId) {
+        RoomSession session = sessionManager.getSession(roomId)
+                .orElseThrow(() -> new RuntimeException("Session not found"));
+
+        // Count votes for each player
+        Map<UUID, Long> voteCounts = session.getDayVotes().values().stream()
+                .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
+
+        // Build response with player names
+        Map<String, Object> voteStatus = new HashMap<>();
+
+        List<Map<String, Object>> voteCountList = voteCounts.entrySet().stream()
+                .map(entry -> {
+                    PlayerInfo player = session.getPlayers().values().stream()
+                            .filter(p -> p.getPlayerId().equals(entry.getKey()))
+                            .findFirst()
+                            .orElse(null);
+
+                    Map<String, Object> voteInfo = new HashMap<>();
+                    voteInfo.put("playerId", entry.getKey().toString());
+                    voteInfo.put("playerName", player != null ? player.getUsername() : "Unknown");
+                    voteInfo.put("voteCount", entry.getValue());
+                    return voteInfo;
+                })
+                .sorted((a, b) -> ((Long) b.get("voteCount")).compareTo((Long) a.get("voteCount")))
+                .collect(Collectors.toList());
+
+        long alivePlayers = session.getPlayers().values().stream()
+                .filter(p -> p.getStatus() == PlayerStatus.ALIVE)
+                .count();
+
+        voteStatus.put("voteCounts", voteCountList);
+        voteStatus.put("totalVotes", session.getDayVotes().size());
+        voteStatus.put("totalPlayers", alivePlayers);
+        voteStatus.put("votingComplete", session.getDayVotes().size() == alivePlayers);
+
+        return voteStatus;
     }
 
     /**
      * Handle night action (werewolf kill, seer check, doctor save)
+     * Validates action, stores it, and checks if all actions are complete
      */
     public void handleNightAction(UUID roomId, UUID actorId, UUID targetId, String action) {
+        System.out.println("🌙 Night action: " + action + " by " + actorId + " on " + targetId);
+
         RoomSession session = sessionManager.getSession(roomId)
                 .orElseThrow(() -> new RuntimeException("Session not found"));
 
-        // TODO: Implement night action logic
-        System.out.println("🌙 Night action: " + action + " by " + actorId + " on " + targetId);
+        // Validate we're in NIGHT phase
+        if (!"NIGHT".equals(session.getCurrentPhase())) {
+            throw new RuntimeException("Actions can only be performed during NIGHT phase");
+        }
 
-        // Process action and broadcast result
+        // Find the actor
+        PlayerInfo actor = session.getPlayers().values().stream()
+                .filter(p -> p.getPlayerId().equals(actorId))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Actor not found"));
+
+        // Validate actor is alive
+        if (actor.getStatus() != PlayerStatus.ALIVE) {
+            throw new RuntimeException("Dead players cannot perform actions");
+        }
+
+        // Find target
+        PlayerInfo target = session.getPlayers().values().stream()
+                .filter(p -> p.getPlayerId().equals(targetId))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Target not found"));
+
+        // Validate target is alive (except seer can check dead players for info)
+        if (target.getStatus() != PlayerStatus.ALIVE && !action.equals("SEER_CHECK")) {
+            throw new RuntimeException("Cannot target dead players");
+        }
+
+        // Process action based on role
+        switch (action) {
+            case "WEREWOLF_KILL":
+                handleWerewolfKill(roomId, session, actor, targetId);
+                break;
+            case "SEER_CHECK":
+                handleSeerCheck(roomId, session, actor, target);
+                break;
+            case "DOCTOR_PROTECT":
+                handleDoctorProtect(roomId, session, actor, targetId);
+                break;
+            default:
+                throw new RuntimeException("Unknown action: " + action);
+        }
+
+        // Check if all night actions are complete
+        checkNightActionsComplete(roomId, session);
+    }
+
+    /**
+     * Handle werewolf kill action
+     * Multiple werewolves must agree on target
+     */
+    private void handleWerewolfKill(UUID roomId, RoomSession session, PlayerInfo actor, UUID targetId) {
+        // Validate actor is werewolf
+        if (actor.getRole() != Role.WEREWOLF) {
+            throw new RuntimeException("Only werewolves can kill");
+        }
+
+        System.out.println("🐺 Werewolf " + actor.getUsername() + " targets " + targetId);
+
+        // Store the werewolf's vote for kill target
+        session.getNightActions().put(actor.getPlayerId(), targetId);
+        session.getPlayersWhoActedTonight().add(actor.getPlayerId());
+
+        // Check if all werewolves have voted
+        long totalWerewolves = session.getPlayers().values().stream()
+                .filter(p -> p.getStatus() == PlayerStatus.ALIVE)
+                .filter(p -> p.getRole() == Role.WEREWOLF)
+                .count();
+
+        long werewolvesWhoVoted = session.getNightActions().entrySet().stream()
+                .filter(e -> {
+                    PlayerInfo p = session.getPlayers().values().stream()
+                            .filter(player -> player.getPlayerId().equals(e.getKey()))
+                            .findFirst()
+                            .orElse(null);
+                    return p != null && p.getRole() == Role.WEREWOLF;
+                })
+                .count();
+
+        System.out.println("🐺 Werewolf votes: " + werewolvesWhoVoted + "/" + totalWerewolves);
+
+        // If all werewolves voted, determine consensus
+        if (werewolvesWhoVoted == totalWerewolves) {
+            // Count votes for each target
+            Map<UUID, Long> killVotes = session.getNightActions().entrySet().stream()
+                    .filter(e -> {
+                        PlayerInfo p = session.getPlayers().values().stream()
+                                .filter(player -> player.getPlayerId().equals(e.getKey()))
+                                .findFirst()
+                                .orElse(null);
+                        return p != null && p.getRole() == Role.WEREWOLF;
+                    })
+                    .map(Map.Entry::getValue)
+                    .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
+
+            // Find most voted target
+            UUID finalTarget = killVotes.entrySet().stream()
+                    .max(Map.Entry.comparingByValue())
+                    .map(Map.Entry::getKey)
+                    .orElse(null);
+
+            session.setWerewolfKillTarget(finalTarget);
+            System.out.println("🎯 Werewolves decided to kill: " + finalTarget);
+        }
+
+        // Broadcast action confirmation (only to werewolves)
+        broadcastWerewolfAction(roomId, session, actor, targetId);
+    }
+
+    /**
+     * Handle seer check action
+     */
+    private void handleSeerCheck(UUID roomId, RoomSession session, PlayerInfo actor, PlayerInfo target) {
+        // Validate actor is seer
+        if (actor.getRole() != Role.SEER) {
+            throw new RuntimeException("Only the seer can investigate");
+        }
+
+        // Validate seer hasn't acted yet this night
+        if (session.getPlayersWhoActedTonight().contains(actor.getPlayerId())) {
+            throw new RuntimeException("You have already acted tonight");
+        }
+
+        System.out.println("🔮 Seer " + actor.getUsername() + " checks " + target.getUsername());
+
+        session.setSeerCheckTarget(target.getPlayerId());
+        session.getPlayersWhoActedTonight().add(actor.getPlayerId());
+
+        // Send result privately to seer
+        Map<String, Object> result = new HashMap<>();
+        result.put("type", "SEER_RESULT");
+        result.put("targetId", target.getPlayerId().toString());
+        result.put("targetName", target.getUsername());
+        result.put("role", target.getRole().toString());
+        result.put("isWerewolf", target.getRole() == Role.WEREWOLF);
+        result.put("timestamp", System.currentTimeMillis());
+
+        // Send private message to seer only
+        webSocketService.sendPrivateMessage(
+                actor.getWebSocketSessionId(),
+                "/queue/seer-result",
+                result);
+
+        System.out.println("✅ Seer result sent: " + target.getUsername() + " is " + target.getRole());
+    }
+
+    /**
+     * Handle doctor protect action
+     */
+    private void handleDoctorProtect(UUID roomId, RoomSession session, PlayerInfo actor, UUID targetId) {
+        // Validate actor is doctor
+        if (actor.getRole() != Role.DOCTOR) {
+            throw new RuntimeException("Only the doctor can protect");
+        }
+
+        // Validate doctor hasn't acted yet this night
+        if (session.getPlayersWhoActedTonight().contains(actor.getPlayerId())) {
+            throw new RuntimeException("You have already acted tonight");
+        }
+
+        System.out.println("💊 Doctor " + actor.getUsername() + " protects " + targetId);
+
+        session.setDoctorProtectionTarget(targetId);
+        session.getPlayersWhoActedTonight().add(actor.getPlayerId());
+
+        // Broadcast action confirmation (only to doctor)
         Map<String, Object> message = new HashMap<>();
-        message.put("type", "NIGHT_ACTION_RESULT");
-        message.put("action", action);
+        message.put("type", "ACTION_CONFIRMED");
+        message.put("action", "DOCTOR_PROTECT");
+        message.put("targetId", targetId.toString());
+        message.put("timestamp", System.currentTimeMillis());
 
-        webSocketService.sendGameUpdate(roomId, message);
+        webSocketService.sendPrivateMessage(
+                actor.getWebSocketSessionId(),
+                "/queue/action-confirm",
+                message);
+
+        System.out.println("✅ Doctor protection confirmed");
+    }
+
+    /**
+     * Check if all required night actions are complete
+     * If yes, automatically transition to DAY phase
+     */
+    private void checkNightActionsComplete(UUID roomId, RoomSession session) {
+        // Count how many special roles need to act
+        long aliveWerewolves = session.getPlayers().values().stream()
+                .filter(p -> p.getStatus() == PlayerStatus.ALIVE)
+                .filter(p -> p.getRole() == Role.WEREWOLF)
+                .count();
+
+        boolean hasSeer = session.getPlayers().values().stream()
+                .anyMatch(p -> p.getStatus() == PlayerStatus.ALIVE && p.getRole() == Role.SEER);
+
+        boolean hasDoctor = session.getPlayers().values().stream()
+                .anyMatch(p -> p.getStatus() == PlayerStatus.ALIVE && p.getRole() == Role.DOCTOR);
+
+        // Check if werewolves have decided
+        boolean werewolvesDone = session.getWerewolfKillTarget() != null || aliveWerewolves == 0;
+
+        // Check if seer has acted (or doesn't exist)
+        boolean seerDone = !hasSeer || session.getSeerCheckTarget() != null;
+
+        // Check if doctor has acted (or doesn't exist)
+        boolean doctorDone = !hasDoctor || session.getDoctorProtectionTarget() != null;
+
+        System.out.println("🌙 Night actions check: Werewolves=" + werewolvesDone +
+                ", Seer=" + seerDone + ", Doctor=" + doctorDone);
+
+        // If all required actions are done, transition to day
+        if (werewolvesDone && seerDone && doctorDone) {
+            System.out.println("✅ All night actions complete - transitioning to day");
+            session.setAllNightActionsComplete(true);
+
+            // Auto-transition to day phase
+            transitionToDay(roomId);
+        }
+    }
+
+    /**
+     * Broadcast werewolf action to all werewolves (they can see each other's votes)
+     */
+    private void broadcastWerewolfAction(UUID roomId, RoomSession session, PlayerInfo actor, UUID targetId) {
+        Map<String, Object> message = new HashMap<>();
+        message.put("type", "WEREWOLF_VOTE");
+        message.put("voterId", actor.getPlayerId().toString());
+        message.put("voterName", actor.getUsername());
+        message.put("targetId", targetId.toString());
+        message.put("timestamp", System.currentTimeMillis());
+
+        // Send to all alive werewolves
+        session.getPlayers().values().stream()
+                .filter(p -> p.getStatus() == PlayerStatus.ALIVE)
+                .filter(p -> p.getRole() == Role.WEREWOLF)
+                .forEach(werewolf -> {
+                    webSocketService.sendPrivateMessage(
+                            werewolf.getWebSocketSessionId(),
+                            "/queue/werewolf-vote",
+                            message);
+                });
     }
 
     /**
