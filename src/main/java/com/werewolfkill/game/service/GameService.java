@@ -185,11 +185,7 @@ private void transitionToNightFromStarting(UUID roomId) {
         message.put("roleDescription", getRoleDescription(player.getRole()));
         message.put("timestamp", System.currentTimeMillis());
 
-        // Send private message to this player only
-        webSocketService.sendPrivateMessage(
-                player.getWebSocketSessionId(),
-                "/queue/role",
-                message);
+        webSocketService.sendGameUpdate(roomId, message);
 
         System.out.println("   📨 Sent role " + player.getRole() + " to " + player.getUsername());
     }
