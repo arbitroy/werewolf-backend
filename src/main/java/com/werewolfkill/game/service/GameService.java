@@ -65,7 +65,7 @@ public class GameService {
 
         // Rest of the method remains the same...
         assignRoles(roomId, session);
-        session.setCurrentPhase("NIGHT");
+        session.setCurrentPhase("STARTING");
         session.setDayNumber(0); // ✅ Initialize day counter
         session.clearNightActions(); // ✅ Clear any previous actions
 
@@ -73,7 +73,7 @@ public class GameService {
         Map<String, Object> message = new HashMap<>();
         message.put("type", "GAME_STARTED");
         message.put("roomId", roomId.toString());
-        message.put("phase", "NIGHT");
+        message.put("phase", "STARTING");
         message.put("dayNumber", 0);
         message.put("playerCount", playerCount);
         message.put("timestamp", System.currentTimeMillis());
@@ -81,8 +81,39 @@ public class GameService {
         webSocketService.sendGameUpdate(roomId, message);
         broadcastRoomState(roomId, session);
 
+        schedulePhaseTransition(roomId, 5000);
+
         System.out.println("✅ Game started successfully for room: " + roomId);
     }
+
+    private void schedulePhaseTransition(UUID roomId, long delayMs) {
+    new Thread(() -> {
+        try {
+            Thread.sleep(delayMs);
+            transitionToNightFromStarting(roomId);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }).start();
+}
+
+private void transitionToNightFromStarting(UUID roomId) {
+    System.out.println("🌙 Transitioning from STARTING to NIGHT phase");
+    
+    RoomSession session = sessionManager.getSession(roomId)
+            .orElseThrow(() -> new RuntimeException("Session not found"));
+    
+    session.setCurrentPhase("NIGHT");
+    
+    Map<String, Object> message = new HashMap<>();
+    message.put("type", "PHASE_CHANGE");
+    message.put("phase", "NIGHT");
+    message.put("dayNumber", session.getDayNumber());
+    message.put("timestamp", System.currentTimeMillis());
+
+    webSocketService.sendGameUpdate(roomId, message);
+    broadcastRoomState(roomId, session);
+}
 
     /**
      * Assign roles to all players in the session
