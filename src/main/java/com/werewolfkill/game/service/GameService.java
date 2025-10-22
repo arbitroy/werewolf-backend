@@ -12,6 +12,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.function.Function;
 
@@ -26,6 +29,9 @@ public class GameService {
 
     @Autowired
     private SessionManager sessionManager;
+
+    @Autowired
+    private PhaseTimerService phaseTimerService;
 
     /**
      * Start the game for a room
@@ -81,25 +87,11 @@ public class GameService {
         webSocketService.sendGameUpdate(roomId, message);
         broadcastRoomState(roomId, session);
 
-        schedulePhaseTransition(roomId, 5000);
-
+        phaseTimerService.startStartingTimer(roomId);
         System.out.println("✅ Game started successfully for room: " + roomId);
     }
 
-    private void schedulePhaseTransition(UUID roomId, long delayMs) {
-        new Thread(() -> {
-            try {
-                Thread.sleep(delayMs);
-                transitionToNightFromStarting(roomId);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }).start();
-    }
-
-    private void transitionToNightFromStarting(UUID roomId) {
-        System.out.println("🌙 Transitioning from STARTING to NIGHT phase");
-
+    public void transitionToNightFromStarting(UUID roomId) {
         RoomSession session = sessionManager.getSession(roomId)
                 .orElseThrow(() -> new RuntimeException("Session not found"));
 
@@ -110,9 +102,14 @@ public class GameService {
         message.put("phase", "NIGHT");
         message.put("dayNumber", session.getDayNumber());
         message.put("timestamp", System.currentTimeMillis());
+        message.put("duration", 60); // ✅ NEW
+        message.put("phaseEndTime", System.currentTimeMillis() + 60000); // ✅ NEW
 
         webSocketService.sendGameUpdate(roomId, message);
         broadcastRoomState(roomId, session);
+
+        // ✅ Start automatic timer
+        phaseTimerService.startNightTimer(roomId);
     }
 
     /**
@@ -311,35 +308,29 @@ public class GameService {
         long alivePlayers = session.getPlayers().values().stream()
                 .filter(p -> p.getStatus() == PlayerStatus.ALIVE)
                 .count();
-
         long playersWhoVoted = session.getDayVotes().size();
 
-        System.out.println("🗳️ Voting progress: " + playersWhoVoted + "/" + alivePlayers);
-
-        // Broadcast vote count update
+        // Broadcast vote count
         Map<String, Object> voteCountMessage = new HashMap<>();
         voteCountMessage.put("type", "VOTE_COUNT_UPDATE");
         voteCountMessage.put("votesReceived", playersWhoVoted);
         voteCountMessage.put("totalPlayers", alivePlayers);
         voteCountMessage.put("votingComplete", playersWhoVoted == alivePlayers);
-        voteCountMessage.put("timestamp", System.currentTimeMillis());
 
         webSocketService.sendGameUpdate(roomId, voteCountMessage);
 
-        // If all players voted, transition to night
         if (playersWhoVoted == alivePlayers) {
-            System.out.println("✅ All players have voted - transitioning to night");
             session.setAllVotesComplete(true);
 
-            // Small delay before transition (let players see final votes)
-            try {
-                Thread.sleep(2000); // 2 second delay
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            // ✅ Cancel timer and schedule transition with 2s delay
+            phaseTimerService.cancelTimer(roomId);
 
-            // Auto-transition to night phase
-            transitionToNight(roomId);
+            // ✅ Use scheduler instead of Thread.sleep()
+            ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+            scheduler.schedule(() -> {
+                transitionToNight(roomId);
+                scheduler.shutdown();
+            }, 2, TimeUnit.SECONDS);
         }
     }
 
@@ -733,7 +724,7 @@ public class GameService {
      * Transition from DAY phase to VOTING phase
      */
     public void transitionToVoting(UUID roomId) {
-        System.out.println("🗳️ Transitioning to VOTING phase for room: " + roomId);
+        phaseTimerService.cancelTimer(roomId);
 
         RoomSession session = sessionManager.getSession(roomId)
                 .orElseThrow(() -> new RuntimeException("Session not found"));
@@ -741,17 +732,19 @@ public class GameService {
         session.setCurrentPhase("VOTING");
         session.clearDayVotes();
 
-        // Broadcast voting phase started
         Map<String, Object> message = new HashMap<>();
         message.put("type", "PHASE_CHANGE");
         message.put("phase", "VOTING");
         message.put("dayNumber", session.getDayNumber());
         message.put("timestamp", System.currentTimeMillis());
+        message.put("duration", 60); // ✅ NEW
+        message.put("phaseEndTime", System.currentTimeMillis() + 60000); // ✅ NEW
 
         webSocketService.sendGameUpdate(roomId, message);
         broadcastRoomState(roomId, session);
 
-        System.out.println("✅ VOTING phase started");
+        // ✅ AUTO-TRANSITION TO NIGHT
+        phaseTimerService.startVotingTimer(roomId);
     }
 
     /**
@@ -914,18 +907,202 @@ public class GameService {
     private void handleHunterRevenge(UUID roomId, RoomSession session, PlayerInfo hunter) {
         System.out.println("🎯 Hunter revenge triggered: " + hunter.getUsername());
 
-        // TODO: In a real implementation, you'd wait for hunter to choose target
-        // For now, we'll just broadcast that hunter CAN take revenge
-        // The actual revenge target selection would be handled by a separate API call
+        // Set hunter revenge state
+        session.setHunterRevengeHunterId(hunter.getPlayerId());
+        session.setHunterRevengeComplete(false);
 
+        // Set deadline: 15 seconds from now
+        long deadline = System.currentTimeMillis() + 15000;
+        session.setHunterRevengeDeadline(deadline);
+
+        // Get list of alive players (hunter can target anyone alive)
+        List<Map<String, Object>> aliveTargets = session.getPlayers().values().stream()
+                .filter(p -> p.getStatus() == PlayerStatus.ALIVE)
+                .filter(p -> !p.getPlayerId().equals(hunter.getPlayerId())) // Can't target self
+                .map(p -> {
+                    Map<String, Object> target = new HashMap<>();
+                    target.put("playerId", p.getPlayerId().toString());
+                    target.put("username", p.getUsername());
+                    return target;
+                })
+                .collect(Collectors.toList());
+
+        // Broadcast to ALL players that hunter can take revenge
+        Map<String, Object> publicMessage = new HashMap<>();
+        publicMessage.put("type", "HUNTER_REVENGE_TRIGGERED");
+        publicMessage.put("hunterId", hunter.getPlayerId().toString());
+        publicMessage.put("hunterName", hunter.getUsername());
+        publicMessage.put("message", "The Hunter has one last shot before dying!");
+        publicMessage.put("deadline", deadline);
+        publicMessage.put("timestamp", System.currentTimeMillis());
+
+        webSocketService.sendGameUpdate(roomId, publicMessage);
+
+        // Send PRIVATE message to hunter with available targets
+        Map<String, Object> privateMessage = new HashMap<>();
+        privateMessage.put("type", "HUNTER_REVENGE_PROMPT");
+        privateMessage.put("availableTargets", aliveTargets);
+        privateMessage.put("deadline", deadline);
+        privateMessage.put("message", "Choose a player to eliminate!");
+        privateMessage.put("timestamp", System.currentTimeMillis());
+
+        webSocketService.sendPrivateMessage(
+                hunter.getWebSocketSessionId(),
+                "/queue/hunter-revenge",
+                privateMessage);
+
+        System.out.println("⏰ Hunter has 15 seconds to choose target");
+
+        // ✅ Start 15-second timer
+        phaseTimerService.startHunterRevengeTimer(roomId, 15, () -> {
+            // If hunter didn't act in time, cancel revenge
+            if (!session.isHunterRevengeComplete()) {
+                System.out.println("⏰ Hunter revenge timeout - no target selected");
+                timeoutHunterRevenge(roomId, session);
+            }
+        });
+    }
+
+    /**
+     * ✅ NEW: Execute hunter revenge on selected target
+     */
+    public void executeHunterRevenge(UUID roomId, UUID hunterId, UUID targetId) {
+        System.out.println("🎯 Executing hunter revenge: " + hunterId + " → " + targetId);
+
+        RoomSession session = sessionManager.getSession(roomId)
+                .orElseThrow(() -> new RuntimeException("Session not found"));
+
+        // Validate hunter revenge is active
+        if (session.getHunterRevengeHunterId() == null) {
+            throw new RuntimeException("No hunter revenge in progress");
+        }
+
+        if (!session.getHunterRevengeHunterId().equals(hunterId)) {
+            throw new RuntimeException("You are not the hunter");
+        }
+
+        if (session.isHunterRevengeComplete()) {
+            throw new RuntimeException("Hunter revenge already executed");
+        }
+
+        // Check deadline
+        if (System.currentTimeMillis() > session.getHunterRevengeDeadline()) {
+            throw new RuntimeException("Hunter revenge time expired");
+        }
+
+        // Find target
+        PlayerInfo target = session.getPlayers().values().stream()
+                .filter(p -> p.getPlayerId().equals(targetId))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("Target not found"));
+
+        // Validate target is alive
+        if (target.getStatus() != PlayerStatus.ALIVE) {
+            throw new RuntimeException("Cannot target dead players");
+        }
+
+        // Cancel timer
+        phaseTimerService.cancelHunterRevengeTimer(roomId);
+
+        // Mark revenge as complete
+        session.setHunterRevengeComplete(true);
+
+        // Execute the kill
+        eliminatePlayer(roomId, session, targetId, "HUNTER_REVENGE");
+
+        // Broadcast revenge result
         Map<String, Object> message = new HashMap<>();
-        message.put("type", "HUNTER_REVENGE");
-        message.put("hunterId", hunter.getPlayerId().toString());
-        message.put("hunterName", hunter.getUsername());
-        message.put("message", "The Hunter has one last shot before dying!");
+        message.put("type", "HUNTER_REVENGE_EXECUTED");
+        message.put("hunterId", hunterId.toString());
+        message.put("targetId", targetId.toString());
+        message.put("targetName", target.getUsername());
+        message.put("message", "The Hunter's final shot struck " + target.getUsername() + "!");
         message.put("timestamp", System.currentTimeMillis());
 
         webSocketService.sendGameUpdate(roomId, message);
+
+        // Clear hunter revenge state
+        session.clearHunterRevenge();
+
+        System.out.println("✅ Hunter revenge executed successfully");
+
+        // Small delay before continuing game
+        new Thread(() -> {
+            try {
+                Thread.sleep(3000); // 3 second dramatic pause
+                continueAfterHunterRevenge(roomId, session);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }).start();
+    }
+
+    /**
+     * ✅ NEW: Handle hunter revenge timeout
+     */
+    private void timeoutHunterRevenge(UUID roomId, RoomSession session) {
+        System.out.println("⏰ Hunter revenge timed out");
+
+        session.setHunterRevengeComplete(true);
+
+        // Broadcast timeout
+        Map<String, Object> message = new HashMap<>();
+        message.put("type", "HUNTER_REVENGE_TIMEOUT");
+        message.put("message", "The Hunter's final moment passed without action...");
+        message.put("timestamp", System.currentTimeMillis());
+
+        webSocketService.sendGameUpdate(roomId, message);
+
+        // Clear state
+        session.clearHunterRevenge();
+
+        // Continue game after 2 seconds
+        new Thread(() -> {
+            try {
+                Thread.sleep(2000);
+                continueAfterHunterRevenge(roomId, session);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }).start();
+    }
+
+    /**
+     * ✅ NEW: Continue game flow after hunter revenge completes
+     */
+    private void continueAfterHunterRevenge(UUID roomId, RoomSession session) {
+        System.out.println("🎮 Continuing game after hunter revenge");
+
+        // Check for game over
+        String winner = checkWinCondition(session);
+        if (winner != null) {
+            endGame(roomId, session, winner);
+            return;
+        }
+
+        // Continue to next phase
+        String currentPhase = session.getCurrentPhase();
+        if ("VOTING".equals(currentPhase)) {
+            // Was during voting → continue to night
+            session.setCurrentPhase("NIGHT");
+            session.clearNightActions();
+
+            Map<String, Object> message = new HashMap<>();
+            message.put("type", "PHASE_CHANGE");
+            message.put("phase", "NIGHT");
+            message.put("dayNumber", session.getDayNumber());
+            message.put("timestamp", System.currentTimeMillis());
+            message.put("duration", 60);
+            message.put("phaseEndTime", System.currentTimeMillis() + 60000);
+
+            webSocketService.sendGameUpdate(roomId, message);
+            broadcastRoomState(roomId, session);
+
+            phaseTimerService.startNightTimer(roomId);
+        } else if ("NIGHT".equals(currentPhase)) {
+            // Was during night → continue to day
+            transitionToDay(roomId);
+        }
     }
 
     /**

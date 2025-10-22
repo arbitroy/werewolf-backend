@@ -39,6 +39,9 @@ public class SessionManager {
         private Set<UUID> playersWhoActedTonight = ConcurrentHashMap.newKeySet();
         private boolean allNightActionsComplete = false;
         private boolean allVotesComplete = false;
+        private UUID hunterRevengeHunterId = null;
+        private Long hunterRevengeDeadline = null; // Timestamp when hunter decision expires
+        private boolean hunterRevengeComplete = false;
 
         public RoomSession() {
             this.players = new ConcurrentHashMap<>();
@@ -173,6 +176,36 @@ public class SessionManager {
 
         public void setAllVotesComplete(boolean allVotesComplete) {
             this.allVotesComplete = allVotesComplete;
+        }
+
+        public UUID getHunterRevengeHunterId() {
+            return hunterRevengeHunterId;
+        }
+
+        public void setHunterRevengeHunterId(UUID hunterId) {
+            this.hunterRevengeHunterId = hunterId;
+        }
+
+        public Long getHunterRevengeDeadline() {
+            return hunterRevengeDeadline;
+        }
+
+        public void setHunterRevengeDeadline(Long deadline) {
+            this.hunterRevengeDeadline = deadline;
+        }
+
+        public boolean isHunterRevengeComplete() {
+            return hunterRevengeComplete;
+        }
+
+        public void setHunterRevengeComplete(boolean complete) {
+            this.hunterRevengeComplete = complete;
+        }
+
+        public void clearHunterRevenge() {
+            this.hunterRevengeHunterId = null;
+            this.hunterRevengeDeadline = null;
+            this.hunterRevengeComplete = false;
         }
 
         // Helper methods

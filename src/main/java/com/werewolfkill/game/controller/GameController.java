@@ -129,4 +129,20 @@ public class GameController {
                     .body(ApiResponse.error(e.getMessage()));
         }
     }
+
+    @PostMapping("/{roomId}/hunter-revenge")
+    public ResponseEntity<ApiResponse<String>> hunterRevenge(
+            @PathVariable UUID roomId,
+            @RequestBody Map<String, String> request) {
+        try {
+            UUID hunterId = UUID.fromString(request.get("hunterId"));
+            UUID targetId = UUID.fromString(request.get("targetId"));
+
+            gameService.executeHunterRevenge(roomId, hunterId, targetId);
+            return ResponseEntity.ok(ApiResponse.success("Hunter revenge executed", null));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(e.getMessage()));
+        }
+    }
 }
