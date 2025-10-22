@@ -87,33 +87,33 @@ public class GameService {
     }
 
     private void schedulePhaseTransition(UUID roomId, long delayMs) {
-    new Thread(() -> {
-        try {
-            Thread.sleep(delayMs);
-            transitionToNightFromStarting(roomId);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-    }).start();
-}
+        new Thread(() -> {
+            try {
+                Thread.sleep(delayMs);
+                transitionToNightFromStarting(roomId);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }).start();
+    }
 
-private void transitionToNightFromStarting(UUID roomId) {
-    System.out.println("🌙 Transitioning from STARTING to NIGHT phase");
-    
-    RoomSession session = sessionManager.getSession(roomId)
-            .orElseThrow(() -> new RuntimeException("Session not found"));
-    
-    session.setCurrentPhase("NIGHT");
-    
-    Map<String, Object> message = new HashMap<>();
-    message.put("type", "PHASE_CHANGE");
-    message.put("phase", "NIGHT");
-    message.put("dayNumber", session.getDayNumber());
-    message.put("timestamp", System.currentTimeMillis());
+    private void transitionToNightFromStarting(UUID roomId) {
+        System.out.println("🌙 Transitioning from STARTING to NIGHT phase");
 
-    webSocketService.sendGameUpdate(roomId, message);
-    broadcastRoomState(roomId, session);
-}
+        RoomSession session = sessionManager.getSession(roomId)
+                .orElseThrow(() -> new RuntimeException("Session not found"));
+
+        session.setCurrentPhase("NIGHT");
+
+        Map<String, Object> message = new HashMap<>();
+        message.put("type", "PHASE_CHANGE");
+        message.put("phase", "NIGHT");
+        message.put("dayNumber", session.getDayNumber());
+        message.put("timestamp", System.currentTimeMillis());
+
+        webSocketService.sendGameUpdate(roomId, message);
+        broadcastRoomState(roomId, session);
+    }
 
     /**
      * Assign roles to all players in the session
@@ -540,6 +540,17 @@ private void transitionToNightFromStarting(UUID roomId) {
             session.setWerewolfKillTarget(finalTarget);
             System.out.println("🎯 Werewolves decided to kill: " + finalTarget);
         }
+
+        Map<String, Object> confirmation = new HashMap<>();
+        confirmation.put("type", "ACTION_CONFIRMED");
+        confirmation.put("action", "WEREWOLF_KILL");
+        confirmation.put("actorId", actor.getPlayerId());
+        confirmation.put("timestamp", System.currentTimeMillis());
+
+        webSocketService.sendPrivateMessage(
+                actor.getWebSocketSessionId(),
+                "/queue/action-confirm",
+                confirmation);
 
         // Broadcast action confirmation (only to werewolves)
         broadcastWerewolfAction(roomId, session, actor, targetId);

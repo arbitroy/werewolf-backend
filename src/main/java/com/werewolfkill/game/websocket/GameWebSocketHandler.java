@@ -5,6 +5,8 @@ import com.werewolfkill.game.repository.RoomRepository;
 import com.werewolfkill.game.session.SessionManager;
 import com.werewolfkill.game.session.SessionManager.PlayerInfo;
 import com.werewolfkill.game.session.SessionManager.RoomSession;
+import com.werewolfkill.game.service.GameService;
+
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
@@ -29,6 +31,9 @@ public class GameWebSocketHandler {
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
+
+    @Autowired
+    private GameService gameService;
 
     @MessageMapping("/room/{roomId}/join")
     public void handleJoinRoom(
@@ -204,4 +209,83 @@ public class GameWebSocketHandler {
 
         System.out.println("❌ Sent error to session " + sessionId + ": " + errorMessage);
     }
+
+    /**
+     * Handle night actions via WebSocket (werewolf kill, seer check, doctor
+     * protect)
+     */
+    @MessageMapping("/game/{roomId}/action")
+    public void handleNightAction(
+            @DestinationVariable String roomId,
+            Map<String, String> message,
+            StompHeaderAccessor headerAccessor) {
+
+        String webSocketSessionId = headerAccessor.getSessionId();
+
+        try {
+            System.out.println("🌙 Received night action for room: " + roomId);
+
+            UUID roomUuid = UUID.fromString(roomId);
+            UUID actorId = UUID.fromString(message.get("actorId"));
+            UUID targetId = UUID.fromString(message.get("targetId"));
+            String action = message.get("action");
+
+            System.out.println("   Action: " + action + " by " + actorId + " on " + targetId);
+
+            // Delegate to existing game service
+            gameService.handleNightAction(roomUuid, actorId, targetId, action);
+
+            System.out.println("✅ Night action processed successfully");
+
+        } catch (IllegalArgumentException e) {
+            System.out.println("❌ Invalid UUID format: " + e.getMessage());
+            sendError(webSocketSessionId, "Invalid player or target ID");
+        } catch (RuntimeException e) {
+            System.out.println("❌ Game logic error: " + e.getMessage());
+            sendError(webSocketSessionId, e.getMessage());
+        } catch (Exception e) {
+            System.out.println("❌ Unexpected error: " + e.getMessage());
+            e.printStackTrace();
+            sendError(webSocketSessionId, "An error occurred processing your action");
+        }
+    }
+
+    /**
+     * Handle voting via WebSocket (day phase voting)
+     */
+    @MessageMapping("/game/{roomId}/vote")
+    public void handleVote(
+            @DestinationVariable String roomId,
+            Map<String, String> message,
+            StompHeaderAccessor headerAccessor) {
+
+        String webSocketSessionId = headerAccessor.getSessionId();
+
+        try {
+            System.out.println("🗳️ Received vote for room: " + roomId);
+
+            UUID roomUuid = UUID.fromString(roomId);
+            UUID voterId = UUID.fromString(message.get("voterId"));
+            UUID targetId = UUID.fromString(message.get("targetId"));
+
+            System.out.println("   Vote: " + voterId + " → " + targetId);
+
+            // Delegate to existing game service
+            gameService.handleVote(roomUuid, voterId, targetId);
+
+            System.out.println("✅ Vote processed successfully");
+
+        } catch (IllegalArgumentException e) {
+            System.out.println("❌ Invalid UUID format: " + e.getMessage());
+            sendError(webSocketSessionId, "Invalid voter or target ID");
+        } catch (RuntimeException e) {
+            System.out.println("❌ Game logic error: " + e.getMessage());
+            sendError(webSocketSessionId, e.getMessage());
+        } catch (Exception e) {
+            System.out.println("❌ Unexpected error: " + e.getMessage());
+            e.printStackTrace();
+            sendError(webSocketSessionId, "An error occurred processing your vote");
+        }
+    }
+
 }
