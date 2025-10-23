@@ -1190,6 +1190,47 @@ public class GameService {
         webSocketService.sendGameUpdate(roomId, message);
 
         System.out.println("✅ Game ended - " + winner + " win!");
+
+        // ✅ NEW: Schedule cleanup after 10 seconds (give players time to see results)
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+        scheduler.schedule(() -> {
+            resetGameSession(roomId, session);
+            scheduler.shutdown();
+        }, 10, TimeUnit.SECONDS);
+    }
+
+    /**
+     * ✅ NEW METHOD: Reset game session to WAITING state for new game
+     */
+    private void resetGameSession(UUID roomId, RoomSession session) {
+        System.out.println("🧹 Resetting game session for room: " + roomId);
+
+        // Cancel any active timers
+        phaseTimerService.cancelTimer(roomId);
+
+        // Reset session game state
+        session.setCurrentPhase("WAITING");
+        session.setDayNumber(0);
+        session.clearNightActions();
+        session.clearDayVotes();
+        session.setWerewolfKillTarget(null);
+        session.setDoctorProtectionTarget(null);
+        session.setSeerCheckTarget(null);
+        session.getPlayersWhoActedTonight().clear();
+        session.setAllNightActionsComplete(false);
+        session.setAllVotesComplete(false);
+        session.clearHunterRevenge();
+
+        // Reset all players' status and roles
+        session.getPlayers().values().forEach(player -> {
+            player.setRole(null);
+            player.setStatus(PlayerStatus.ALIVE);
+        });
+
+        // Broadcast room state update to show room is ready for new game
+        broadcastRoomState(roomId, session);
+
+        System.out.println("✅ Game session reset - room ready for new game");
     }
 
     /**
