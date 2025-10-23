@@ -762,6 +762,7 @@ public class GameService {
     public void transitionToNight(UUID roomId) {
         System.out.println("🌙 Transitioning to NIGHT phase for room: " + roomId);
 
+        phaseTimerService.cancelTimer(roomId);
         RoomSession session = sessionManager.getSession(roomId)
                 .orElseThrow(() -> new RuntimeException("Session not found"));
 
@@ -777,6 +778,7 @@ public class GameService {
             // Check for Hunter revenge
             if (eliminatedPlayer != null && eliminatedPlayer.getRole() == Role.HUNTER) {
                 handleHunterRevenge(roomId, session, eliminatedPlayer);
+                return;
             }
         }
 
@@ -797,11 +799,17 @@ public class GameService {
         message.put("phase", "NIGHT");
         message.put("dayNumber", session.getDayNumber());
         message.put("timestamp", System.currentTimeMillis());
+        message.put("duration", 60); // ✅ ENSURE THIS IS HERE
+        message.put("phaseEndTime", System.currentTimeMillis() + 60000); // ✅ ENSURE THIS IS HERE
 
         webSocketService.sendGameUpdate(roomId, message);
         broadcastRoomState(roomId, session);
 
+        // ✅ ENSURE THIS IS HERE
+        phaseTimerService.startNightTimer(roomId);
+
         System.out.println("✅ NIGHT phase started");
+        System.out.println("   ⏰ Timer set for 60 seconds"); // ✅ ADD THIS
     }
 
     /**
@@ -1085,7 +1093,6 @@ public class GameService {
             return;
         }
 
-        // Continue to next phase
         String currentPhase = session.getCurrentPhase();
         if ("VOTING".equals(currentPhase)) {
             // Was during voting → continue to night
@@ -1102,10 +1109,11 @@ public class GameService {
 
             webSocketService.sendGameUpdate(roomId, message);
             broadcastRoomState(roomId, session);
-
             phaseTimerService.startNightTimer(roomId);
+
+            System.out.println("✅ Continuing to NIGHT phase after hunter revenge");
         } else if ("NIGHT".equals(currentPhase)) {
-            // Was during night → continue to day
+            // ✅ CHANGE: Call fixed transitionToDay() instead of inline code
             transitionToDay(roomId);
         }
     }
