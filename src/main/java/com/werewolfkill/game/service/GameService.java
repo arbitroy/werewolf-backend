@@ -715,8 +715,11 @@ public class GameService {
         message.put("phase", "DAY");
         message.put("dayNumber", session.getDayNumber());
         message.put("timestamp", System.currentTimeMillis());
+        message.put("duration", 120);
+        message.put("phaseEndTime", System.currentTimeMillis() + 120000);
 
         webSocketService.sendGameUpdate(roomId, message);
+        phaseTimerService.startDayTimer(roomId);
         broadcastRoomState(roomId, session);
 
         System.out.println("✅ DAY phase started - Day " + session.getDayNumber());
