@@ -563,12 +563,16 @@ public class GameService {
             throw new RuntimeException("You have already acted tonight");
         }
 
-        System.out.println("🔮 Seer " + actor.getUsername() + " checks " + target.getUsername());
+        System.out.println("🔮 SEER CHECK:");
+        System.out.println("   Seer: " + actor.getUsername());
+        System.out.println("   Seer WS Session: " + actor.getWebSocketSessionId());
+        System.out.println("   Target: " + target.getUsername());
+        System.out.println("   Target Role: " + target.getRole());
 
         session.setSeerCheckTarget(target.getPlayerId());
         session.getPlayersWhoActedTonight().add(actor.getPlayerId());
 
-        // Send result privately to seer
+        // Send result
         Map<String, Object> result = new HashMap<>();
         result.put("type", "SEER_RESULT");
         result.put("targetId", target.getPlayerId().toString());
@@ -577,13 +581,16 @@ public class GameService {
         result.put("isWerewolf", target.getRole() == Role.WEREWOLF);
         result.put("timestamp", System.currentTimeMillis());
 
-        // Send private message to seer only
+        System.out.println("📤 Sending seer result to: " + actor.getWebSocketSessionId());
+        System.out.println("   Destination: /queue/seer-result");
+        System.out.println("   Result: " + result);
+
         webSocketService.sendPrivateMessage(
                 actor.getWebSocketSessionId(),
                 "/queue/seer-result",
                 result);
 
-        System.out.println("✅ Seer result sent: " + target.getUsername() + " is " + target.getRole());
+        System.out.println("✅ Seer result sent!");
     }
 
     /**
